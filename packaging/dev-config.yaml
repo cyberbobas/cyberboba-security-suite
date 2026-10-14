@@ -1,0 +1,34 @@
+# Development config: no root, no netfilter; API on localhost.
+proxifier:
+  enabled: false
+  listen_tcp: 127.0.0.1:7470
+  listen_dns: 127.0.0.1:7453
+  listen_socks: 127.0.0.1:7472
+  listen_http: 127.0.0.1:7473
+  dns_upstream: 1.1.1.1:53
+  dns_via_rules: true
+  block_quic: true
+  ipv6: true
+  sniff_hostnames: true
+  mark_base: 0x7400
+  table_base: 7400
+api:
+  unix_socket: /tmp/cyberboba-dev/cyberboba.sock
+  listen: 127.0.0.1:7471
+caido:
+  enabled: false
+  managed: false
+  listen: 127.0.0.1:8080
+  proxy_name: caido
+proxies:
+  - name: demo-socks
+    type: socks5
+    addr: 127.0.0.1:1080
+vpns: []
+rules:
+  - name: Localhost and LAN
+    targets: [lan]
+    action: direct
+  - name: Default
+    action: direct
+log_level: debug

@@ -1,0 +1,54 @@
+{
+  "name": "cyberboba-desktop",
+  "version": "0.2.0",
+  "description": "Desktop shell (window + tray) for the cyberboba networking daemon",
+  "private": true,
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "icons": "node tools/make-icons.js",
+    "dist": "electron-builder --linux AppImage deb"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "io.cyberboba.desktop",
+    "productName": "cyberboba",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "pages/**",
+      "assets/**"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network",
+      "icon": "build/icon.png",
+      "synopsis": "Proxifier-style rules, VPN manager and intercepting proxy",
+      "desktop": {
+        "entry": {
+          "Name": "cyberboba",
+          "Comment": "Proxifier-style rules, VPN manager and intercepting proxy",
+          "StartupWMClass": "cyberboba"
+        }
+      }
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}.${ext}"
+    },
+    "deb": {
+      "artifactName": "${productName}_${version}_${arch}.${ext}",
+      "priority": "optional"
+    }
+  }
+}

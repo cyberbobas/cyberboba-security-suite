@@ -1,0 +1,19 @@
+[Unit]
+Description=CyberBoba Security Suite - proxifier, VPN manager and Caido integration
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cyberbobad --config /etc/cyberboba/config.yaml
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=cyberboba
+RuntimeDirectoryMode=0755
+# Needs CAP_NET_ADMIN for iptables/SO_MARK/VPN and root for /proc access.
+User=root
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

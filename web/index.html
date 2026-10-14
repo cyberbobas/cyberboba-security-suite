@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CyberBoba Security Suite</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<script>
+/* apply theme before first paint: stored preference, else OS preference */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('cyberboba.theme'); } catch (e) {}
+  if (t !== 'light' && t !== 'dark') {
+    t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+  }
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+</head>
+<body>
+<div id="app">
+  <header id="header">
+    <a class="brand" href="#/dashboard" title="CyberBoba Security Suite">
+      <span class="brand-mark" aria-hidden="true">&#x16BC;</span>CyberBoba
+    </a>
+    <span id="hdr-proxify" class="pill off" title="Proxify state">PROXIFY</span>
+    <span id="hdr-stats" class="hdr-stats mono" title="active connections and current rates"></span>
+    <span class="spacer"></span>
+    <a id="hdr-pending" class="hdr-badge" href="#/intercept/queue" title="held requests/responses waiting in the intercept queue" hidden></a>
+    <span id="hdr-sse" class="dot" title="event stream: connecting"></span>
+    <button id="theme-toggle" class="btn icon" type="button" title="Toggle light/dark theme (t)" aria-label="Toggle theme">&#9790;</button>
+  </header>
+
+  <nav id="sidebar" aria-label="Pages">
+    <a href="#/dashboard" data-page="dashboard"><span class="nav-ico" aria-hidden="true">&#9673;</span>Dashboard<kbd>1</kbd></a>
+    <a href="#/traffic" data-page="traffic"><span class="nav-ico" aria-hidden="true">&#9906;</span>Traffic<kbd>2</kbd></a>
+    <a href="#/map" data-page="map"><span class="nav-ico" aria-hidden="true">&#127758;</span>Live Map<kbd>M</kbd></a>
+    <a href="#/processes" data-page="processes"><span class="nav-ico" aria-hidden="true">&#9638;</span>Processes<kbd>P</kbd></a>
+    <a href="#/bandwidth" data-page="bandwidth"><span class="nav-ico" aria-hidden="true">&#9684;</span>Bandwidth<span id="nav-bw" class="nav-badge" hidden></span><kbd>B</kbd></a>
+    <a href="#/dns" data-page="dns"><span class="nav-ico" aria-hidden="true">&#9906;</span>DNS<span id="nav-dns" class="nav-badge" hidden></span><kbd>D</kbd></a>
+    <a href="#/ai" data-page="ai"><span class="nav-ico" aria-hidden="true">&#129302;</span>AI Agents<span id="nav-ai" class="nav-badge" hidden></span><kbd>A</kbd></a>
+    <a href="#/connections" data-page="connections"><span class="nav-ico" aria-hidden="true">&#8644;</span>Connections<kbd>3</kbd></a>
+    <a href="#/rules" data-page="rules"><span class="nav-ico" aria-hidden="true">&#8801;</span>Rules<kbd>4</kbd></a>
+    <a href="#/routebuilder" data-page="routebuilder"><span class="nav-ico" aria-hidden="true">&#9781;</span>RouteBuilder<kbd>5</kbd></a>
+    <a href="#/firewall" data-page="firewall"><span class="nav-ico" aria-hidden="true">&#128737;</span>Firewall<span id="nav-fw" class="nav-badge" hidden></span><kbd>6</kbd></a>
+    <a href="#/intercept" data-page="intercept"><span class="nav-ico" aria-hidden="true">&#9638;</span>Intercept<span id="nav-pending" class="nav-badge" hidden></span><kbd>7</kbd></a>
+    <a href="#/proxies" data-page="proxies"><span class="nav-ico" aria-hidden="true">&#9656;</span>Proxies<kbd>8</kbd></a>
+    <a href="#/vpn" data-page="vpn"><span class="nav-ico" aria-hidden="true">&#9099;</span>VPN<kbd>9</kbd></a>
+    <a href="#/tags" data-page="tags"><span class="nav-ico" aria-hidden="true">&#9636;</span>Tags<kbd>0</kbd></a>
+    <a href="#/settings" data-page="settings"><span class="nav-ico" aria-hidden="true">&#9776;</span>Settings</a>
+    <a href="#/caido" data-page="caido"><span class="nav-ico" aria-hidden="true">&#9881;</span>Caido (external)</a>
+    <div class="sidebar-foot muted small">Alt+1..0 switch pages<br>/ filter &middot; t theme</div>
+  </nav>
+
+  <main id="main" tabindex="-1"></main>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<script src="worldland.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

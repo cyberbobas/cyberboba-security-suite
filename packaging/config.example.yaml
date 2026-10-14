@@ -1,0 +1,78 @@
+# cyberboba configuration. Reloaded live when changed via the UI/CLI/API.
+proxifier:
+  enabled: true                 # install iptables rules at start
+  listen_tcp: 127.0.0.1:7470    # transparent TCP listener
+  listen_dns: 127.0.0.1:7453    # DNS forwarder
+  dns_upstream: 1.1.1.1:53
+  dns_via_rules: true           # route DNS by rules (pseudo-app "dns")
+  block_quic: true              # force browsers to TCP so HTTPS is proxyable
+  ipv6: true
+  sniff_hostnames: true         # learn hostnames from TLS SNI / HTTP Host
+  mark_base: 0x7400
+  table_base: 7400
+
+api:
+  unix_socket: /run/cyberboba/cyberboba.sock
+  listen: 127.0.0.1:7471        # web UI; set token to protect it
+  token: ""
+
+caido:                          # optional external Caido instance (usable as upstream proxy "caido")
+  enabled: false                # set true after `cyberboba caido install`
+  managed: true                 # cyberboba starts/stops caido-cli
+  listen: 127.0.0.1:8080
+  proxy_name: caido             # use `proxy: caido` in rules
+
+intercept:                      # built-in intercepting proxy (own CA in ca_dir)
+  enabled: true
+  listen: 127.0.0.1:8080        # explicit HTTP proxy; or send apps in with `action: intercept`
+  ca_dir: /etc/cyberboba/ca
+  hold_requests: false
+  hold_responses: false
+  record_only_scope: false
+  scope: {include: [], exclude: []}
+  passthrough: []               # pinned apps' hosts, tunneled untouched
+  upstream: {action: direct}    # or {action: proxy, proxy: socks-home} / {action: vpn, vpn: office}
+  verify_upstream_tls: false
+  max_flows: 10000
+  max_body: 1048576
+
+proxies:
+  - name: socks-home
+    type: socks5
+    addr: 10.0.0.1:1080
+    remote_dns: true
+  # - name: chain
+  #   type: chain
+  #   hops: [socks-home, caido]
+
+vpns: []
+  # - name: office
+  #   type: wireguard
+  #   config: /etc/cyberboba/vpn/office.conf
+  #   mode: selective            # only rules with `action: vpn` use it
+  # - name: mint
+  #   type: openvpn
+  #   config: /etc/cyberboba/vpn/mint.ovpn
+  #   mode: full
+  #   auth_file: /etc/cyberboba/vpn/mint.auth
+
+rules:
+  - name: Localhost and LAN
+    targets: [lan]
+    action: direct
+  # - name: Capture browsers in the interceptor
+  #   apps: [firefox, chrome, chromium]
+  #   ports: ["80", "443"]
+  #   action: intercept
+  # - name: Work through the office VPN
+  #   apps: ["tag:work", telegram-desktop]
+  #   action: vpn
+  #   vpn: office
+  # - name: Block telemetry
+  #   targets: ["*.telemetry.example"]
+  #   action: block
+  - name: Default
+    action: direct
+
+log_level: info
+max_conn_log: 2000

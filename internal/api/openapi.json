@@ -1,0 +1,1318 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "cyberboba API",
+  "version": "0.2.0",
+  "description": "Per-application routing rules (Proxifier), VPN manager (WireGuard/OpenVPN), intercepting HTTP(S) proxy. Full field reference: docs/API.md and docs/CONFIG.md in the repository. Auth: optional bearer token (api.token) on the TCP listener; ?token= also accepted."
+ },
+ "servers": [
+  {
+   "url": "http://127.0.0.1:7471"
+  }
+ ],
+ "paths": {
+  "/api/status": {
+   "get": {
+    "summary": "Daemon status (proxify, stats, vpns, caido, intercept, warnings)",
+    "tags": [
+     "status"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/doctor": {
+   "get": {
+    "summary": "Environment checks",
+    "tags": [
+     "status"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/log": {
+   "get": {
+    "summary": "Recent log lines",
+    "tags": [
+     "status"
+    ],
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "max lines"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/processes": {
+   "get": {
+    "summary": "Running processes for app rules",
+    "tags": [
+     "status"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/proxify/enable": {
+   "post": {
+    "summary": "Install transparent interception rules",
+    "tags": [
+     "proxifier"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/proxify/disable": {
+   "post": {
+    "summary": "Remove transparent interception rules",
+    "tags": [
+     "proxifier"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/connections": {
+   "get": {
+    "summary": "Live/recent connections",
+    "tags": [
+     "proxifier"
+    ],
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "max rows"
+     },
+     {
+      "name": "closed",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "include closed (1/0)"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "delete": {
+    "summary": "Clear closed connection history",
+    "tags": [
+     "proxifier"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/connections/{id}/close": {
+   "post": {
+    "summary": "Terminate a live connection",
+    "tags": [
+     "proxifier"
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "connection id"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/config": {
+   "get": {
+    "summary": "Full configuration (JSON)",
+    "tags": [
+     "config"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "put": {
+    "summary": "Replace configuration (JSON)",
+    "tags": [
+     "config"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "Config document"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/config/yaml": {
+   "get": {
+    "summary": "Configuration as YAML",
+    "tags": [
+     "config"
+    ],
+    "responses": {
+     "200": {
+      "description": "text/plain YAML"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "put": {
+    "summary": "Replace configuration with YAML body",
+    "tags": [
+     "config"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "YAML text (text/plain)"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/config/export": {
+   "get": {
+    "summary": "Download YAML",
+    "tags": [
+     "config"
+    ],
+    "responses": {
+     "200": {
+      "description": "application/x-yaml attachment"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/rules": {
+   "get": {
+    "summary": "Ordered rules",
+    "tags": [
+     "rules"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "put": {
+    "summary": "Replace rules",
+    "tags": [
+     "rules"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{rules: [Rule]}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/rules/test": {
+   "post": {
+    "summary": "Evaluate which rule matches",
+    "tags": [
+     "rules"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{app, user, host, ip, port, protocol}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/proxies": {
+   "get": {
+    "summary": "Proxies",
+    "tags": [
+     "proxies"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "put": {
+    "summary": "Replace proxies",
+    "tags": [
+     "proxies"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{proxies: [Proxy]}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/proxies/{name}/check": {
+   "post": {
+    "summary": "Test a proxy",
+    "tags": [
+     "proxies"
+    ],
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "proxy name"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{url?}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/vpn": {
+   "get": {
+    "summary": "VPN profiles with live status",
+    "tags": [
+     "vpn"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "put": {
+    "summary": "Replace VPN profiles",
+    "tags": [
+     "vpn"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{vpns: [Profile]}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/vpn/import": {
+   "post": {
+    "summary": "Import a config file as a profile",
+    "tags": [
+     "vpn"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{name, type?, content, mode?}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/vpn/{name}/up": {
+   "post": {
+    "summary": "Connect",
+    "tags": [
+     "vpn"
+    ],
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "profile"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/vpn/{name}/down": {
+   "post": {
+    "summary": "Disconnect",
+    "tags": [
+     "vpn"
+    ],
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "profile"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/vpn/{name}/log": {
+   "get": {
+    "summary": "Backend log",
+    "tags": [
+     "vpn"
+    ],
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "profile"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/caido": {
+   "get": {
+    "summary": "External Caido integration status",
+    "tags": [
+     "caido"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "put": {
+    "summary": "Update Caido settings",
+    "tags": [
+     "caido"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "Caido config"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/caido/start": {
+   "post": {
+    "summary": "Caido start",
+    "tags": [
+     "caido"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/caido/stop": {
+   "post": {
+    "summary": "Caido stop",
+    "tags": [
+     "caido"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/caido/restart": {
+   "post": {
+    "summary": "Caido restart",
+    "tags": [
+     "caido"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/caido/install": {
+   "post": {
+    "summary": "Caido install",
+    "tags": [
+     "caido"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/caido/log": {
+   "get": {
+    "summary": "Caido output",
+    "tags": [
+     "caido"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/caido/ca/install": {
+   "post": {
+    "summary": "Install Caido CA",
+    "tags": [
+     "caido"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{path?}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept": {
+   "get": {
+    "summary": "Intercepting proxy status + config",
+    "tags": [
+     "intercept"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "put": {
+    "summary": "Update intercept config",
+    "tags": [
+     "intercept"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "Intercept config"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/toggle": {
+   "post": {
+    "summary": "Runtime switches",
+    "tags": [
+     "intercept"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{recording?, hold_requests?, hold_responses?}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/flows": {
+   "get": {
+    "summary": "List flows (no bodies)",
+    "tags": [
+     "intercept"
+    ],
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": ""
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": ""
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "substring"
+     },
+     {
+      "name": "host",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": ""
+     },
+     {
+      "name": "method",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": ""
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "exact or prefix"
+     },
+     {
+      "name": "scope",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "1 = in-scope only"
+     },
+     {
+      "name": "source",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "transparent|proxy|repeater"
+     },
+     {
+      "name": "ids",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "comma list"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "delete": {
+    "summary": "Clear flows",
+    "tags": [
+     "intercept"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/flows/{id}": {
+   "get": {
+    "summary": "Flow with bodies and raw text",
+    "tags": [
+     "intercept"
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "flow id"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   },
+   "delete": {
+    "summary": "Delete flow",
+    "tags": [
+     "intercept"
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "flow id"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/flows/{id}/export": {
+   "get": {
+    "summary": "Export one flow",
+    "tags": [
+     "intercept"
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "flow id"
+     },
+     {
+      "name": "format",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": "har|curl|raw"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "file"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/export": {
+   "get": {
+    "summary": "HAR export",
+    "tags": [
+     "intercept"
+    ],
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": ""
+     },
+     {
+      "name": "host",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": ""
+     },
+     {
+      "name": "scope",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "description": ""
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "HAR JSON"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/pending": {
+   "get": {
+    "summary": "Held flows",
+    "tags": [
+     "intercept"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/pending/forward-all": {
+   "post": {
+    "summary": "Release all held flows",
+    "tags": [
+     "intercept"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/pending/{id}/forward": {
+   "post": {
+    "summary": "Release a held flow (optionally edited)",
+    "tags": [
+     "intercept"
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "flow id"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{raw?}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/pending/{id}/drop": {
+   "post": {
+    "summary": "Drop a held flow",
+    "tags": [
+     "intercept"
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "flow id"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/send": {
+   "post": {
+    "summary": "Repeater: send a raw request",
+    "tags": [
+     "intercept"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "description": "{host?, port?, tls?, raw, follow_redirects?, timeout_sec?}"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/ca": {
+   "get": {
+    "summary": "CA certificate PEM",
+    "tags": [
+     "intercept"
+    ],
+    "responses": {
+     "200": {
+      "description": "application/x-x509-ca-cert"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/ca/install": {
+   "post": {
+    "summary": "Trust the CA system-wide and in browsers",
+    "tags": [
+     "intercept"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/intercept/ca/regenerate": {
+   "post": {
+    "summary": "Regenerate the CA",
+    "tags": [
+     "intercept"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/events": {
+   "get": {
+    "summary": "Server-sent events: conn, stats, vpn, caido, flow, intercept, log",
+    "tags": [
+     "events"
+    ],
+    "responses": {
+     "200": {
+      "description": "text/event-stream"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/openapi.json": {
+   "get": {
+    "summary": "This document",
+    "tags": [
+     "status"
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/topology": {
+   "get": {
+    "summary": "Traffic topology graph (nodes, edges, per-rule paths, live connections with geo)",
+    "tags": [
+     "topology"
+    ],
+    "responses": {
+     "200": {
+      "description": "Graph object"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/geo/{ip}": {
+   "get": {
+    "summary": "Geolocate an IP address or hostname (country, city, ISP; cached)",
+    "tags": [
+     "topology"
+    ],
+    "parameters": [
+     {
+      "name": "ip",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "IP address or hostname"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Geo info"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  },
+  "/api/route/test": {
+   "post": {
+    "summary": "Live route test: dial a URL through the route the rules resolve to; returns exit IP, country, latency",
+    "tags": [
+     "topology"
+    ],
+    "responses": {
+     "200": {
+      "description": "probe result"
+     },
+     "4XX": {
+      "description": "{error: message}"
+     }
+    }
+   }
+  }
+ }
+}

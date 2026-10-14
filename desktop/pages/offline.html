@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>cyberboba — daemon not running</title>
+<style>
+  :root {
+    --bg: #0f1115; --bg2: #1c1f25; --bg3: #242830; --bg4: #2c313a;
+    --border: #30353e; --border2: #3b414c;
+    --fg: #d8dbe0; --fg2: #8f96a0; --fg3: #666d78;
+    --accent: #4c8dff; --green: #3fb950; --red: #f0505a; --yellow: #d9a62e;
+    --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", Ubuntu, sans-serif;
+    --radius: 4px;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.5 var(--sans);
+    display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
+  }
+  .card {
+    width: min(640px, calc(100vw - 48px));
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.55);
+    padding: 26px 28px 22px;
+  }
+  .head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  .glyph { width: 40px; height: 40px; flex: none; }
+  h1 { font-size: 17px; font-weight: 600; margin: 0; }
+  h1 small { display: block; font-size: 11.5px; font-weight: 500; color: var(--fg2); font-family: var(--mono); margin-top: 2px; }
+  p { margin: 0 0 10px; color: var(--fg2); }
+  .status {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--fg2);
+    background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 7px 10px; margin: 14px 0; min-height: 32px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex: none; }
+  .dot.busy { background: var(--yellow); animation: pulse 1s infinite alternate; }
+  .dot.ok { background: var(--green); }
+  @keyframes pulse { from { opacity: .35 } to { opacity: 1 } }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 18px; }
+  button {
+    font: inherit; font-size: 12.5px; cursor: pointer;
+    color: var(--fg); background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 6px 14px;
+  }
+  button:hover { background: var(--bg4); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: default; filter: none; }
+  details { border-top: 1px solid var(--border); padding-top: 12px; }
+  summary { cursor: pointer; color: var(--fg2); font-size: 12px; }
+  summary:hover { color: var(--fg); }
+  pre {
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; margin: 10px 0 6px; overflow-x: auto; color: var(--fg);
+    -webkit-user-select: text; user-select: text;
+  }
+  pre .c { color: var(--fg3); }
+  code { font-family: var(--mono); font-size: 11.5px; color: var(--fg); background: var(--bg3); padding: 0 4px; border-radius: 3px; }
+  .foot { margin-top: 14px; font-size: 11px; color: var(--fg3); font-family: var(--mono); display: flex; justify-content: space-between; gap: 10px; }
+  .foot a { color: var(--accent); text-decoration: none; cursor: pointer; }
+  .foot a:hover { text-decoration: underline; }
+  .err { color: var(--red); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <svg class="glyph" viewBox="0 0 100 100" aria-hidden="true">
+      <g fill="#4c8dff">
+        <rect x="9" y="20" width="16" height="42"/><polygon points="17,2 2,24 32,24"/>
+        <rect x="42" y="16" width="16" height="46"/><polygon points="50,-2 35,20 65,20"/>
+        <rect x="75" y="20" width="16" height="42"/><polygon points="83,2 68,24 98,24"/>
+        <rect x="9" y="48" width="82" height="16"/>
+        <rect x="42" y="56" width="16" height="40"/>
+        <rect x="32" y="90" width="36" height="8"/>
+      </g>
+    </svg>
+    <h1>cyberbobad is not running<small id="url">http://127.0.0.1:7471</small></h1>
+  </div>
+  <p>The desktop app is only a shell around the daemon's web UI. Start the
+     <code>cyberboba</code> system service, or install it if you have not yet.</p>
+
+  <div class="status"><span class="dot" id="dot"></span><span id="msg">daemon not reachable</span></div>
+
+  <div class="actions">
+    <button class="primary" id="start">Start service</button>
+    <button id="retry">Retry</button>
+  </div>
+
+  <details id="install">
+    <summary>Install service (first time)</summary>
+    <pre><span class="c"># from the cyberboba source tree (needs Go &ge; 1.22)</span>
+make build
+sudo make install
+sudo systemctl daemon-reload
+sudo systemctl enable --now cyberboba</pre>
+    <p>“Start service” runs <code>pkexec systemctl start cyberboba</code>; if the unit is
+       not installed it falls back to <code>pkexec /usr/local/bin/cyberbobad</code>.
+       A different address can be set with <code>CYBERBOBA_URL</code> or in
+       <code>~/.config/cyberboba-desktop/config.json</code> (<code>{"url": "...", "token": "..."}</code>).</p>
+  </details>
+
+  <div class="foot">
+    <span>retrying automatically every 3 s</span>
+    <a id="open">open in browser</a>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var api = window.cyberboba || null;
+  var $ = function (id) { return document.getElementById(id); };
+  var dot = $('dot'), msg = $('msg'), startBtn = $('start'), retryBtn = $('retry');
+  var url = 'http://127.0.0.1:7471';
+
+  function setStatus(kind, text) {
+    dot.className = 'dot' + (kind === 'busy' ? ' busy' : kind === 'ok' ? ' ok' : '');
+    msg.textContent = text;
+    msg.className = kind === 'err' ? 'err' : '';
+  }
+  function busy(on) { startBtn.disabled = on; retryBtn.disabled = on; }
+
+  if (!api) {
+    setStatus('err', 'bridge unavailable (preload not loaded)');
+    busy(true);
+    return;
+  }
+
+  api.getConfig().then(function (cfg) {
+    url = cfg.url || url;
+    $('url').textContent = url;
+  }).catch(function () {});
+
+  startBtn.addEventListener('click', function () {
+    busy(true);
+    setStatus('busy', 'starting service (polkit may ask for your password)…');
+    var ticks = 0;
+    var t = setInterval(function () { ticks++; setStatus('busy', 'waiting for ' + url + ' … ' + ticks + 's'); }, 1000);
+    api.startService().then(function (r) {
+      clearInterval(t);
+      if (r && r.ok) { setStatus('ok', 'daemon is up — loading UI'); return; }
+      setStatus('err', (r && r.error) || 'could not start the service');
+      busy(false);
+    }).catch(function (e) {
+      clearInterval(t);
+      setStatus('err', String(e && e.message || e));
+      busy(false);
+    });
+  });
+
+  retryBtn.addEventListener('click', function () {
+    busy(true);
+    setStatus('busy', 'probing ' + url + ' …');
+    api.retry().then(function (r) {
+      if (r && r.ok) { setStatus('ok', 'daemon is up — loading UI'); return; }
+      setStatus('err', 'still not reachable at ' + url);
+      busy(false);
+    }).catch(function (e) { setStatus('err', String(e && e.message || e)); busy(false); });
+  });
+
+  $('open').addEventListener('click', function (e) { e.preventDefault(); api.openExternal(url); });
+})();
+</script>
+</body>
+</html>

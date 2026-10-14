@@ -1,0 +1,18 @@
+# build output
+/bin/
+/dist/
+
+# desktop (Electron) deps & build
+desktop/node_modules/
+desktop/dist/
+desktop/out/
+
+# local/runtime artifacts
+*.tmp
+*.log
+*.bak
+/tmp/
+.DS_Store
+
+# local dev config overrides (ship only the example)
+/config.local.yaml
