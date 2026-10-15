@@ -178,6 +178,34 @@ func (e *Engine) handle(client net.Conn) {
 	e.serve(client, src, dst, dst, "", true)
 }
 
+// guessApp names the program that most recently had a *resolved* connection
+// to the same destination (same uid when known). Used only to label a
+// firewall prompt whose process could not be resolved; never for rules.
+func (e *Engine) guessApp(host string, ip netip.Addr, uid int) string {
+	if e.tracker == nil || (host == "" && !ip.IsValid()) {
+		return ""
+	}
+	dst := ""
+	if ip.IsValid() {
+		dst = ip.String()
+	}
+	conns := e.tracker.List(0, true)
+	for i := len(conns) - 1; i >= 0; i-- {
+		c := &conns[i]
+		if c.App == "" || c.PID == os.Getpid() {
+			continue
+		}
+		if !((host != "" && c.Host == host) || (dst != "" && c.DstIP == dst)) {
+			continue
+		}
+		if uid >= 0 && c.User != "" && c.User != e.procs.UserName(uid) {
+			continue
+		}
+		return c.App
+	}
+	return ""
+}
+
 // serve classifies and relays one client connection.
 //
 //	src/lookupDst: the client socket's endpoints as seen in /proc/net/tcp
@@ -201,14 +229,24 @@ func (e *Engine) serveWithHead(client net.Conn, src, lookupDst, dst netip.AddrPo
 	// The owning process is looked up right after the kernel completed the
 	// handshake on our side; the client's fd table may still be settling,
 	// so retry a few times before giving up.
+	// The socket cannot vanish while the client keeps the connection open, so a
+	// longer back-off (≈0.6 s total) is cheap insurance against a /proc scan
+	// racing a busy fd table (Chromium, Electron, Bun); the firewall would
+	// otherwise prompt for an "(unknown program)".
 	var lookupErr error
-	for attempt := 0; attempt < 4; attempt++ {
-		p, uid, err := e.procs.Lookup(src, lookupDst)
+	lookupDelays := []time.Duration{10, 20, 40, 80, 150, 300}
+	var hints []netip.AddrPort
+	if ap, err := netip.ParseAddrPort(client.LocalAddr().String()); err == nil {
+		hints = []netip.AddrPort{ap}
+	}
+	for attempt := 0; attempt < len(lookupDelays); attempt++ {
+		p, uid, err := e.procs.Lookup(src, lookupDst, hints...)
 		if err == nil {
-			rc.App, rc.Exe, rc.Cmd, rc.Tag, rc.UID, rc.User = p.Name, p.Exe, p.Cmd, p.Tag, p.UID, p.User
-			tracked.PID, tracked.App, tracked.Exe, tracked.User, tracked.Tag = p.PID, p.Name, p.Exe, p.User, p.Tag
+			name := p.DisplayName()
+			rc.App, rc.Exe, rc.Cmd, rc.Tag, rc.UID, rc.User = name, p.Exe, p.Cmd, p.Tag, p.UID, p.User
+			tracked.PID, tracked.App, tracked.Exe, tracked.User, tracked.Tag = p.PID, name, p.Exe, p.User, p.Tag
 			if attempt > 0 {
-				e.logf("debug", "process lookup %v->%v succeeded on attempt %d", src, lookupDst, attempt+1)
+				e.logf("debug", "process lookup %v->%v succeeded on attempt %d (%s)", src, lookupDst, attempt+1, name)
 			}
 			lookupErr = nil
 			break
@@ -217,10 +255,14 @@ func (e *Engine) serveWithHead(client net.Conn, src, lookupDst, dst netip.AddrPo
 		if uid >= 0 {
 			rc.UID = uid
 		}
-		time.Sleep(time.Duration(10*(attempt+1)) * time.Millisecond)
+		time.Sleep(lookupDelays[attempt] * time.Millisecond)
 	}
 	if lookupErr != nil {
-		e.logf("debug", "process lookup %v->%v failed: %v", src, lookupDst, lookupErr)
+		e.logf("warn", "process lookup %v->%v failed (uid %d): %v", src, lookupDst, rc.UID, lookupErr)
+		if rc.UID >= 0 && rc.User == "" {
+			rc.User = e.procs.UserName(rc.UID)
+			tracked.User = rc.User
+		}
 	}
 	rc.Host = host
 	if rc.Host == "" && rc.IP.IsValid() {
@@ -244,6 +286,11 @@ func (e *Engine) serveWithHead(client net.Conn, src, lookupDst, dst netip.AddrPo
 		}
 	}
 	tracked.Host = rc.Host
+	// Label-only guess for an unresolved process, now that the hostname is known.
+	appGuess := ""
+	if lookupErr != nil {
+		appGuess = e.guessApp(rc.Host, rc.IP, rc.UID)
+	}
 
 	d := e.Evaluate(rc)
 	// SOCKS clients may hand us only a hostname. Resolve it lazily: only
@@ -292,8 +339,8 @@ func (e *Engine) serveWithHead(client net.Conn, src, lookupDst, dst netip.AddrPo
 	fw := e.firewall
 	e.mu.RUnlock()
 	if fw != nil && fw.Active() && tracked.PID != os.Getpid() {
-		fd := fw.Check(firewall.Conn{App: tracked.App, Exe: tracked.Exe, Cmd: rc.Cmd, Tag: tracked.Tag,
-			IP: rc.IP, Port: rc.Port, Host: rc.Host, PID: tracked.PID})
+		fd := fw.Check(firewall.Conn{App: tracked.App, Exe: tracked.Exe, Cmd: rc.Cmd, Tag: tracked.Tag, Guess: appGuess,
+			IP: rc.IP, Port: rc.Port, Host: rc.Host, PID: tracked.PID, User: tracked.User})
 		if !fd.Allow {
 			tracked.Action = "block"
 			tracked.Via = ""

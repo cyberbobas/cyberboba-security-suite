@@ -83,6 +83,35 @@ electron-builder configuration lives in the `build` section of `package.json`
 desktop shell; install the daemon separately (`sudo make install` from the
 repository root, or your distribution's package).
 
+## System-wide alerts
+
+The shell keeps its own subscription to the daemon's event stream
+(`/api/events`) from the main process, so alerts reach you even when the
+window is hidden in the tray or behind other apps:
+
+* **Firewall prompts** (`fw_ask`) become a desktop notification banner with
+  **Allow / Allow always / Deny** buttons (critical urgency: stays until
+  answered, drawn by the shell on top of everything, fullscreen apps
+  included). Clicking the banner body opens the detailed popup
+  (`pages/prompt.html`): Allow (Enter) / Deny (D) / Later (Esc), a "remember"
+  checkbox and a countdown to the daemon's `ask_timeout_sec`. The banner is
+  the primary UI because under Wayland (GNOME/Mutter) no application window
+  can put itself above the user's current window or steal focus. Buttons are
+  delivered through `notifier.py` (python3 + GLib): one long-lived D-Bus
+  connection does Notify/CloseNotification and receives ActionInvoked, which
+  GNOME sends only to the connection that created the notification. Without
+  python3-gi the shell falls back to a plain notification + the popup. The
+  web UI inside the window skips its own modal when it runs in the shell
+  (`window.cyberboba.desktop`). `CYBERBOBA_X11=1` forces the X11 backend,
+  where the popup's always-on-top works natively.
+* **Blocked connections** (`fw_block`), **abnormal traffic** (`bw_alert`) and
+  **VPN up/down/error** transitions become native notifications; clicking one
+  opens the relevant page.
+
+Because the subscription counts as an open UI, the daemon *holds* connections
+for a decision whenever the desktop app runs. With no shell and no browser tab
+open it fails open (allows and logs) instead. `alerts.js` is the whole module.
+
 ## Troubleshooting
 
 - **Blank/offline page although the daemon runs** – check the address

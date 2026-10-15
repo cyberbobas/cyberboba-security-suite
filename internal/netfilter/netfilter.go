@@ -237,10 +237,51 @@ func (m *Manager) EnsureOrder() error {
 			}
 		}
 	}
+	if !m.opts.DryRun {
+		m.neutraliseWgQuickNft()
+	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// neutraliseWgQuickNft handles the nftables flavour of the wg-quick anti-spoof
+// rule. On systems where wg-quick finds `nft` it does NOT use iptables; it
+// creates its own table "wg-quick-<iface>" with a base chain
+//
+//	preraw { type filter hook prerouting priority -300; iifname != "wg0" ip daddr <tunnel ip> fib saddr type != local drop }
+//
+// Base chains of different tables are evaluated independently on the same hook,
+// so an ACCEPT in our CYBERBOBA_RAW chain cannot protect loopback replies of
+// REDIRECTed connections from that drop (only a verdict inside the same chain
+// can). Insert `iifname "lo" accept` as rule 1 of every such preraw chain; the
+// 5 s EnsureOrder watchdog re-applies it after any wg-quick up.
+func (m *Manager) neutraliseWgQuickNft() {
+	nft, err := exec.LookPath("nft")
+	if err != nil {
+		return
+	}
+	out, err := exec.Command(nft, "list", "tables").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(line) // "table ip wg-quick-Mint"
+		if len(f) != 3 || f[0] != "table" || !strings.HasPrefix(f[2], "wg-quick-") {
+			continue
+		}
+		fam, table := f[1], f[2]
+		chain, err := exec.Command(nft, "list", "chain", fam, table, "preraw").Output()
+		if err != nil || strings.Contains(string(chain), "iifname \"lo\" accept") {
+			continue
+		}
+		if err := exec.Command(nft, "insert", "rule", fam, table, "preraw", "iifname", "lo", "accept").Run(); err != nil {
+			m.opts.Logf("netfilter: could not relax wg-quick nft anti-spoof rule in %s %s: %v", fam, table, err)
+			continue
+		}
+		m.opts.Logf("netfilter: relaxed wg-quick nft anti-spoof rule in %s %s (loopback replies of redirected connections now pass)", fam, table)
+	}
 }
 
 // Uninstall removes everything. Safe to call when nothing is installed.

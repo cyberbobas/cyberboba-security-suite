@@ -572,6 +572,9 @@ function updateFwBadge() {
   if (el) { el.textContent = state.fwQueue.length || ''; el.hidden = !state.fwQueue.length; }
 }
 function maybeShowFwPrompt() {
+  // Inside the desktop app the Electron shell shows a system-wide popup for
+  // every ask (visible even when this window is hidden); do not duplicate it.
+  if (window.cyberboba && window.cyberboba.desktop) return;
   if (state.fwPromptOpen || !state.fwQueue.length) return;
   const ask = state.fwQueue[0];
   state.fwPromptOpen = true;
@@ -590,7 +593,9 @@ function maybeShowFwPrompt() {
     title: '\uD83D\uDEE1 Firewall \u2014 program wants network access',
     width: '520px',
     body: h('div', { class: 'fw-prompt' },
-      h('div', { class: 'fw-prompt-app' }, h('span', { class: 'fw-prompt-ico' }, '\u26A0'), h('b', null, ask.app || '(unknown program)')),
+      h('div', { class: 'fw-prompt-app' }, h('span', { class: 'fw-prompt-ico' }, '\u26A0'), h('b', null, ask.app || '(unknown program)'),
+        ask.guess ? h('span', { class: 'muted small' }, ' \u2014 probably ', h('b', null, ask.guess), ' (guessed from earlier connections)') : null,
+        ask.user ? h('span', { class: 'muted small' }, ' \u00b7 user ', ask.user) : null),
       h('div', { class: 'fw-prompt-line' }, 'is trying to reach ', h('b', { class: 'mono' }, dst),
         ' in the ', badge(ask.zone, ask.zone === 'trusted' ? 'green' : 'blue'), ' zone.'),
       ask.exe ? h('div', { class: 'muted small mono', style: { marginTop: '4px', wordBreak: 'break-all' } }, ask.exe) : null,
@@ -620,6 +625,7 @@ const TILES = [
 
 function vpnStateBadge(v) {
   const st = v.state || 'down';
+  if (st === 'up' && v.external) { const b = badge('up (external)', 'green'); b.title = 'Brought up outside cyberboba (wg-quick by hand / tray helper); Down still works here'; return b; }
   return badge(st, STATE_CLS[st] || (st === 'up' ? 'green' : 'gray'));
 }
 function caidoStateBadge(c) {
@@ -1313,7 +1319,7 @@ Pages.rules = {
       if (!body.host) { replace(result, h('div', { class: 'info-box' }, 'Enter a host to live-test (e.g. api.ipify.org).')); return; }
       replace(result, h('div', { class: 'muted' }, h('span', { class: 'spinner' }), ' dialing through the matched route…'));
       let r; try { r = await api('POST', '/api/route/test', body, { silent: true }); } catch (e) { replace(result, h('div', { class: 'error-box' }, e.message)); return; }
-      const chain = ['this machine', ...(r.vpn ? ['🔒 ' + r.vpn] : []), ...((r.hops || [])), 'exit'];
+      const chain = ['this machine', ...(r.vpn ? ['🔒 ' + r.vpn] : (r.via_full_tunnel ? ['🔒 ' + r.via_full_tunnel + ' (full tunnel)'] : [])), ...((r.hops || [])), 'exit'];
       const head = h('div', null, 'Rule ', h('strong', null, r.rule || '(none → direct)'), ' ', badge(r.action || 'direct', ACTION_CLS[r.action] || 'gray'));
       const chainEl = h('div', { class: 'hop-preview mono', style: { marginTop: '6px' } }, chain.join('  →  '));
       let res;
@@ -2859,6 +2865,8 @@ function routeWizard(onDone) {
  *          "this machine", add VPN/proxy hops one by one, pick scope,
  *          and create the route (proxy chain + rule) in one click.
  * ================================================================ */
+function hostOnlyJS(addr) { const a = String(addr || ''); const i = a.lastIndexOf(':'); return i > 0 && !a.endsWith(']') ? a.slice(0, i).replace(/^\[|\]$/g, '') : a; }
+
 Pages.routebuilder = {
   title: 'RouteBuilder',
   hops: [],
@@ -2881,6 +2889,7 @@ Pages.routebuilder = {
     this.vpnNames = this.vpns.map(v => v.name).filter(Boolean);
     this.vpnEndpoints = {};
     (vp.vpns || []).forEach(v => { if (v && v.endpoint) this.vpnEndpoints[v.name] = v.endpoint; });
+    this.setFullTunnel(vp.vpns);
     this.geo = {};
     this.procs = pc.processes || [];
 
@@ -2927,11 +2936,36 @@ Pages.routebuilder = {
   },
   unmount() { this.root = null; this.canvas = null; },
   syncScope() { this.scopeFields.hidden = this.scope !== 'app'; },
+  // The full-mode VPN that is up right now (owns the default route). Every
+  // chain without its own VPN hop physically leaves through it, so the canvas
+  // shows it as an implicit first hop instead of lying "straight out".
+  setFullTunnel(vpns) {
+    const ft = (vpns || []).find(v => v && v.state === 'up' && (v.mode || (v.config && v.config.mode)) === 'full');
+    this.fullTunnel = ft ? { name: ft.name, endpoint: ft.endpoint, external: !!ft.external } : null;
+  },
+  onEvent(type) {
+    if (type !== 'vpn' || !this.root) return;
+    api('GET', '/api/vpn', undefined, { silent: true }).then(vp => {
+      const before = this.fullTunnel && this.fullTunnel.name;
+      this.setFullTunnel(vp.vpns);
+      if ((this.fullTunnel && this.fullTunnel.name) !== before && this.canvas) this.render();
+    }).catch(() => {});
+  },
 
   render() {
     clear(this.canvas);
     // start node — clickable to add the first/next hop
     this.canvas.append(this.nodeEl({ kind: 'client', label: 'this machine', sub: 'start here' }, () => this.addHop()));
+    const explicitVpn = this.hops.some(x => x.kind === 'vpn');
+    if (this.fullTunnel && !explicitVpn) {
+      this.canvas.append(this.arrow());
+      const g = this.fullTunnel.endpoint ? this.geo[hostOnlyJS(this.fullTunnel.endpoint)] : null;
+      const flag = (g && g.flag) ? g.flag + ' ' : '';
+      const el = this.nodeEl({ kind: 'vpn', label: flag + '🔒 ' + this.fullTunnel.name, sub: 'full tunnel · active — all traffic exits here' + (this.fullTunnel.external ? ' (external)' : '') });
+      el.classList.add('rb-implicit');
+      el.title = 'Implicit hop: this VPN is up in full mode and owns the default route, so every route without its own VPN hop goes through it. Add an explicit VPN hop to bypass it, or bring it down on the VPN page.';
+      this.canvas.append(el);
+    }
     this.hops.forEach((hp, i) => {
       this.canvas.append(this.arrow());
       const meta = hp.kind === 'vpn'
@@ -2977,13 +3011,18 @@ Pages.routebuilder = {
     const nVpn = this.hops.filter(x => x.kind === 'vpn').length;
     const hasProxy = this.hops.some(x => x.kind === 'proxy');
     clear(this.note);
-    if (!this.hops.length) { this.note.className = 'info-box small'; this.note.append('Click ', h('b', null, 'this machine'), ' or ', h('b', null, 'Add proxy / VPN'), ' to drop in your first hop. With no hops, traffic just goes out directly.'); return; }
+    if (!this.hops.length) {
+      this.note.className = 'info-box small';
+      if (this.fullTunnel) this.note.append('With no hops of its own, this route still leaves through ', h('b', null, this.fullTunnel.name), ' — it is up as a ', h('b', null, 'full tunnel'), ' (default route). Add a different VPN hop to bypass it, or bring it down on the ', h('a', { href: '#/vpn' }, 'VPN'), ' page. Click ', h('b', null, 'Add proxy / VPN'), ' to chain more hops after it.');
+      else this.note.append('Click ', h('b', null, 'this machine'), ' or ', h('b', null, 'Add proxy / VPN'), ' to drop in your first hop. With no hops, traffic just goes out directly.');
+      return;
+    }
     if (nVpn >= 2) {
       this.note.className = 'warn-box small';
       this.note.append('Two or more VPNs in one chain: the builder switches them to ', h('b', null, 'full'), ' mode (nested tunnels — the second runs inside the first). After creating the route, bring these VPNs up in order on the ', h('a', { href: '#/vpn' }, 'VPN'), ' page.');
     } else {
       this.note.className = 'info-box small';
-      this.note.append('Traffic will go ', nVpn ? 'through the VPN' : 'straight out', hasProxy ? ', then through the proxy' : '', ', then on to the site. Press ', h('b', null, 'Create route'), ' when it looks right.');
+      this.note.append('Traffic will go ', nVpn ? 'through the VPN' : (this.fullTunnel ? 'through ' + this.fullTunnel.name + ' (full tunnel)' : 'straight out'), hasProxy ? ', then through the proxy' : '', ', then on to the site. Press ', h('b', null, 'Create route'), ' when it looks right.');
     }
   },
 
@@ -3096,7 +3135,7 @@ Pages.routebuilder = {
 /* vpnModal — create or edit one VPN profile in a window. Persists immediately. */
 function vpnModal({ page, profile, index }) {
   const isNew = index < 0;
-  const base = { name: '', type: 'wireguard', config: '', mode: 'selective', autostart: false, auth_file: '',
+  const base = { name: '', type: 'wireguard', config: '', mode: 'full', autostart: false, auth_file: '',
     extra_args: [], interface: '', comment: '', kill_switch: false, reconnect: false, username: '', password: '' };
   const c = Object.assign({}, base, JSON.parse(JSON.stringify((profile && profile.config) || {})));
   if (!Array.isArray(c.extra_args)) c.extra_args = [];
@@ -3105,7 +3144,7 @@ function vpnModal({ page, profile, index }) {
 
   const name = textInput(c.name, { class: 'mono' });
   const type = sel(['wireguard', 'openvpn'], c.type || 'wireguard');
-  const mode = sel([{ value: 'selective', label: 'selective — only traffic sent here by a rule' }, { value: 'full', label: 'full — becomes the default route for everything' }], c.mode || 'selective');
+  const mode = sel([{ value: 'full', label: 'full — classic VPN: becomes the default route for everything' }, { value: 'selective', label: 'selective — only traffic sent here by a rule (needs rules!)' }], c.mode || 'full');
   const cfgPath = textInput(c.config, { class: 'mono', placeholder: '/etc/cyberboba/vpn/name.conf' });
   const iface = textInput(c.interface, { class: 'mono', placeholder: 'override interface name (optional)' });
   const comment = textInput(c.comment, { placeholder: 'optional note' });
@@ -3211,6 +3250,7 @@ Pages.vpn = {
     let r; try { r = await api('GET', '/api/vpn'); } catch (_) { return; }
     if (!root.isConnected) return;
     this.list = this.normalize(r.vpns);
+    await this.loadRuleRefs();
     root.append(h('div', { class: 'page-head' }, h('h2', null, 'VPN'),
       h('span', { class: 'muted small' }, 'WireGuard & OpenVPN tunnels'),
       h('span', { class: 'spacer' }),
@@ -3248,7 +3288,7 @@ Pages.vpn = {
   },
   normalize(vpns) {
     return (vpns || []).map(v => {
-      const cfg = Object.assign({ name: v.name, type: v.type || 'wireguard', config: '', mode: v.mode || 'selective', autostart: false, auth_file: '', extra_args: [], interface: '', comment: '',
+      const cfg = Object.assign({ name: v.name, type: v.type || 'wireguard', config: '', mode: v.mode || 'full', autostart: false, auth_file: '', extra_args: [], interface: '', comment: '',
         kill_switch: false, reconnect: false, username: '', password: '' }, v.config || {});
       if (!Array.isArray(cfg.extra_args)) cfg.extra_args = [];
       return Object.assign({}, v, { config: cfg });
@@ -3256,7 +3296,27 @@ Pages.vpn = {
   },
   async reload() {
     let r; try { r = await api('GET', '/api/vpn'); } catch (_) { return; }
-    this.list = this.normalize(r.vpns); this.renderAll();
+    this.list = this.normalize(r.vpns); await this.loadRuleRefs(); this.renderAll();
+  },
+  // Names of VPNs some enabled rule (or rotation) actually routes traffic to.
+  async loadRuleRefs() {
+    this.ruleRefs = new Set();
+    try {
+      const rr = await api('GET', '/api/rules', undefined, { silent: true });
+      for (const rule of (rr && rr.rules) || []) if (rule.action === 'vpn' && rule.vpn && rule.enabled !== false) this.ruleRefs.add(rule.vpn);
+      const rot = await api('GET', '/api/vpn/rotations', undefined, { silent: true }).catch(() => null);
+      for (const rs of (rot && rot.status) || []) if (this.ruleRefs.has(rs.name)) for (const m of rs.members || []) this.ruleRefs.add(m);
+    } catch (_) { /* ignore */ }
+  },
+  // Switch a profile to full mode in place (re-up if it was up).
+  async switchToFull(v) {
+    const profiles = this.list.map(x => x === v ? Object.assign({}, x.config, { mode: 'full' }) : x.config);
+    try {
+      await api('PUT', '/api/vpn', { vpns: profiles });
+      if (v.state === 'up' && !v.external) { await vpnUpDown(v.name, false).catch(() => {}); await vpnUpDown(v.name, true).catch(() => {}); }
+      toast(v.name + ' is now a full tunnel — all traffic goes through it while it is up', 'ok');
+      await this.reload();
+    } catch (_) { /* shown */ }
   },
   async persistProfile(cfg, index) {
     const profiles = this.list.map(v => v.config);
@@ -3310,8 +3370,16 @@ Pages.vpn = {
   },
   statusBlock(v) {
     const c = v.config || {};
+    const mode = c.mode || v.mode || 'full';
+    const unrouted = mode === 'selective' && !(this.ruleRefs && this.ruleRefs.has(v.name));
     return h('div', { class: 'vpn-status' },
       v.kill_switch_active ? h('div', { class: 'warn-box', style: { marginBottom: '6px' } }, badge('kill switch active', 'red'), ' outbound traffic is blocked until the tunnel is back up (loopback, LAN and the VPN endpoint stay reachable).') : null,
+      unrouted ? h('div', { class: 'warn-box', style: { marginBottom: '6px' } }, badge('nothing uses this VPN', 'yellow'),
+        ' it is in ', h('b', null, 'selective'), ' mode but no rule sends traffic to it, so bringing it up changes nothing (your IP stays the same). ',
+        btn('Make it a full tunnel', () => this.switchToFull(v), 'tiny primary'), ' ',
+        btn('Add a route…', () => { location.hash = '#/rules'; }, 'tiny'),
+        ' (full = classic VPN for everything; a route = only chosen apps/sites)') : null,
+      v.external ? h('div', { class: 'info-box small', style: { marginBottom: '6px' } }, 'This tunnel was brought up outside cyberboba (wg-quick by hand, a tray helper or NetworkManager). It is shown live here and ', h('b', null, 'Down'), ' takes it down.') : null,
       h('div', { class: 'kv' },
         kv('interface', v.interface), kv('endpoint', v.endpoint),
         kv('local ip', v.local_ip), kv('handshake', isZeroTime(v.last_handshake) ? 'never' : fmt.ago(v.last_handshake)),
@@ -3360,7 +3428,7 @@ Pages.vpn = {
   importDialog() {
     const name = textInput('', { class: 'mono', placeholder: 'office' });
     const type = sel(['wireguard', 'openvpn'], 'wireguard');
-    const mode = sel([{ value: 'selective', label: 'selective (only rule-routed traffic)' }, { value: 'full', label: 'full (default route)' }], 'selective');
+    const mode = sel([{ value: 'full', label: 'full (classic VPN — default route for everything)' }, { value: 'selective', label: 'selective (only rule-routed traffic — needs rules)' }], 'full');
     const content = h('textarea', { class: 'code', rows: 14, placeholder: '[Interface]\nPrivateKey = ...\n\n[Peer]\n...', spellcheck: 'false' });
     const file = h('input', { type: 'file', accept: '.conf,.ovpn,.txt,text/plain' });
     file.addEventListener('change', () => {
@@ -3495,6 +3563,8 @@ Pages.traffic = {
     this.legend = h('div', { class: 'tg-legend small muted' });
     root.append(this.legend);
     this.renderLegend();
+    this.ftNote = h('div', { class: 'info-box small', hidden: true });
+    root.append(this.ftNote);
     this.mapWrap = h('div', { class: 'tg-map' });
     this.side = h('div', { class: 'tg-side' });
     root.append(h('div', { class: 'tg-layout' }, this.mapWrap, this.side));
@@ -3521,6 +3591,10 @@ Pages.traffic = {
     let g; try { g = await api('GET', '/api/topology', undefined, { silent }); } catch (_) { return; }
     if (!this.mapWrap) return;
     this.graph = g;
+    if (this.ftNote) {
+      if (g.full_tunnel) { replace(this.ftNote, '\uD83D\uDD12 All traffic that is not pinned to another VPN currently leaves through ', h('b', null, g.full_tunnel), ' (full tunnel, default route) \u2014 it is drawn as the first hop of every such chain.'); this.ftNote.hidden = false; }
+      else this.ftNote.hidden = true;
+    }
     this.geoNote.textContent = g.geo_enabled ? '' : 'geo lookups off (geo.enabled)';
     this.renderMap();
     this.renderSide();
@@ -4953,7 +5027,7 @@ Pages.firewall = {
     for (const a of ps) {
       const dst = (a.host || a.ip || '?') + (a.port ? ':' + a.port : '');
       list.append(h('div', { class: 'fw-prow' },
-        h('div', null, h('b', null, a.app || '(unknown)'), ' → ', h('span', { class: 'mono' }, dst), ' ', badge(a.zone, a.zone === 'trusted' ? 'green' : 'blue')),
+        h('div', null, h('b', null, a.app || '(unknown)'), a.guess ? h('span', { class: 'muted small' }, ' (probably ' + a.guess + ')') : null, ' → ', h('span', { class: 'mono' }, dst), ' ', badge(a.zone, a.zone === 'trusted' ? 'green' : 'blue')),
         h('div', { class: 'form-row', style: { gap: '6px', marginTop: '4px' } },
           btn('Allow', () => this.answer(a.id, true, false), 'tiny primary'),
           btn('Allow + remember', () => this.answer(a.id, true, true), 'tiny'),

@@ -586,6 +586,8 @@ textarea.rw-replace { width: 100%; resize: vertical; min-height: 40px; }
 .rb-canvas { display: flex; align-items: center; gap: 4px; min-width: min-content; }
 .rb-node { display: flex; align-items: center; gap: 10px; background: var(--bg3); border: 2px solid var(--border2); border-radius: 10px; padding: 10px 14px; min-width: 150px; position: relative; }
 .rb-node.clickable { cursor: pointer; }
+.rb-node.rb-implicit { border-style: dashed; opacity: .92; }
+.rb-node.rb-implicit .rb-node-sub { color: var(--accent); }
 .rb-node.clickable:hover { border-color: var(--accent); background: var(--sel); }
 .rb-node-ico { font-size: 20px; line-height: 1; }
 .rb-node-label { font-weight: 600; font-size: 13px; }

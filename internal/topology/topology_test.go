@@ -114,3 +114,26 @@ func TestBuildChainsVPNAndProxy(t *testing.T) {
 		t.Fatal("expected active edge this->vpn:office from live conn")
 	}
 }
+
+func TestBuildFullTunnelImplicitHop(t *testing.T) {
+	cfg := config.Default()
+	cfg.Rules = []config.Rule{{Name: "LAN", Action: config.ActionDirect, Targets: []string{"lan", "10.0.0.0/8"}}, {Name: "Default", Action: config.ActionDirect}}
+	b := &Builder{Hops: func(string) ([]config.Proxy, error) { return nil, nil }}
+	full := vpn.Status{Name: "vpn1", Type: config.VPNWireGuard, Mode: config.VPNModeFull, State: vpn.StateUp}
+	g := b.Build(cfg, []vpn.Status{full}, nil, false)
+	if g.FullTunnel != "vpn1" {
+		t.Fatalf("full_tunnel = %q, want vpn1", g.FullTunnel)
+	}
+	if len(g.Paths) != 2 || len(g.Paths[1].Nodes) != 3 || g.Paths[1].Nodes[1] != "vpn:vpn1" {
+		t.Fatalf("direct rule path = %v, want [this vpn:vpn1 internet]", g.Paths)
+	}
+	if len(g.Paths[0].Nodes) != 2 {
+		t.Fatalf("LAN-only rule must stay off the tunnel: %v", g.Paths[0].Nodes)
+	}
+	// a selective tunnel does not become an implicit hop
+	sel := vpn.Status{Name: "vpn2", Type: config.VPNWireGuard, Mode: config.VPNModeSelective, State: vpn.StateUp}
+	g = b.Build(cfg, []vpn.Status{sel}, nil, false)
+	if g.FullTunnel != "" || len(g.Paths[1].Nodes) != 2 {
+		t.Fatalf("selective tunnel leaked into direct path: %v", g.Paths)
+	}
+}

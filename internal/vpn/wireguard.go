@@ -61,6 +61,7 @@ func (w *wireguard) renderConfig() (string, string, error) {
 	if inInterface && selective && !tableSet {
 		out = append(out, "Table = off")
 	}
+	out = ensureKeepalive(out)
 	dir := filepath.Join(w.m.RunDir, "wg")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", err
@@ -78,10 +79,8 @@ func (w *wireguard) Up() error {
 		return err
 	}
 	w.runConf = path
-	if interfaceExists(iface) {
-		w.log.add("interface already exists, bringing it down first")
-		_ = exec.Command("wg-quick", "down", path).Run()
-	}
+	w.log.add("taking over interface " + iface)
+	takeOverIface(iface, w.m.logf)
 	cmd := exec.Command("wg-quick", "up", path)
 	out, err := cmd.CombinedOutput()
 	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -91,6 +90,10 @@ func (w *wireguard) Up() error {
 	}
 	if err != nil {
 		return fmt.Errorf("wg-quick up: %v: %s", err, lastLine(string(out)))
+	}
+	// Keep NetworkManager from adopting the interface we just created.
+	if _, err := exec.LookPath("nmcli"); err == nil {
+		_ = exec.Command("nmcli", "device", "set", iface, "managed", "no").Run()
 	}
 	if err := w.m.route(w.t, iface, "", ""); err != nil {
 		_ = exec.Command("wg-quick", "down", path).Run()
@@ -112,30 +115,71 @@ func (w *wireguard) Down() error {
 			return err
 		}
 	}
-	if !interfaceExists(InterfaceName(w.t.profile)) {
-		return nil
+	iface := InterfaceName(w.t.profile)
+	if interfaceExists(iface) {
+		if err := w.teardown(path, iface); err != nil {
+			takeOverIface(iface, w.m.logf)
+			return err
+		}
 	}
+	takeOverIface(iface, w.m.logf)
+	w.t.mu.Lock()
+	w.t.status.External = false
+	w.t.mu.Unlock()
+	w.m.logf("info", "vpn %s: wireguard interface down", w.t.profile.Name)
+	return nil
+}
+
+// teardown runs `wg-quick down` for iface and then removes any policy-routing
+// rules a foreign full-tunnel wg-quick left behind. An interface that was
+// brought up outside cyberboba (by hand, by a tray helper) is torn down the
+// same way; the rendered config is only used for the hooks/DNS unwind.
+func (w *wireguard) teardown(path, iface string) error {
+	table := wgFwmarkTable(iface)
 	out, err := exec.Command("wg-quick", "down", path).CombinedOutput()
 	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if l != "" {
 			w.log.add(l)
 		}
 	}
-	if err != nil {
-		return fmt.Errorf("wg-quick down: %v: %s", err, lastLine(string(out)))
+	if err != nil && interfaceExists(iface) {
+		// wg-quick refuses when the config path and the interface disagree;
+		// delete the link directly as a last resort.
+		w.log.add("wg-quick down failed (" + lastLine(string(out)) + "), deleting link " + iface)
+		if err2 := exec.Command("ip", "link", "delete", "dev", iface).Run(); err2 != nil {
+			return fmt.Errorf("wg-quick down: %v: %s", err, lastLine(string(out)))
+		}
 	}
-	w.m.logf("info", "vpn %s: wireguard interface down", w.t.profile.Name)
+	cleanupWgQuickRules(table)
 	return nil
 }
 
 func (w *wireguard) Refresh(s *Status) {
+	if s.Interface == "" {
+		s.Interface = InterfaceName(w.t.profile)
+	}
 	if s.State != StateUp {
-		return
+		if s.State == StateConnecting {
+			return
+		}
+		// Adopt a tunnel somebody else brought up (wg-quick by hand, a tray
+		// helper, a wg-quick@ unit): the user sees it as "up (external)"
+		// instead of a lying "down", and Down works on it.
+		if !interfaceExists(s.Interface) {
+			return
+		}
+		now := time.Now()
+		s.State, s.Since, s.Error, s.External = StateUp, &now, "", true
+		w.m.logf("info", "vpn %s: interface %s is up outside cyberboba, adopting it", w.t.profile.Name, s.Interface)
 	}
 	if !interfaceExists(s.Interface) {
+		ext := s.External
 		s.State = StateDown
 		s.Since = nil
-		go w.m.lost(w.t, fmt.Errorf("interface %s disappeared", s.Interface))
+		s.External = false
+		if !ext {
+			go w.m.lost(w.t, fmt.Errorf("interface %s disappeared", s.Interface))
+		}
 		return
 	}
 	out, err := exec.Command("wg", "show", s.Interface, "dump").Output()

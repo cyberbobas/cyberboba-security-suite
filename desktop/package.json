@@ -24,6 +24,9 @@
     "files": [
       "main.js",
       "preload.js",
+      "prompt-preload.js",
+      "alerts.js",
+      "notifier.py",
       "pages/**",
       "assets/**"
     ],

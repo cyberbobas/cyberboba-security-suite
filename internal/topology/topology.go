@@ -7,6 +7,7 @@ package topology
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"sort"
 	"strings"
@@ -86,6 +87,10 @@ type Graph struct {
 	Live        []Live    `json:"live"`
 	GeoEnabled  bool      `json:"geo_enabled"`
 	GeneratedAt time.Time `json:"generated_at"`
+	// FullTunnel is the name of the full-mode VPN that is up, if any. It owns
+	// the default route, so every chain without its own VPN hop implicitly
+	// leaves the machine through it (the graph inserts that hop).
+	FullTunnel string `json:"full_tunnel,omitempty"`
 }
 
 // HopsFunc expands a proxy/chain name into the ordered concrete hops.
@@ -166,6 +171,45 @@ func (b *Builder) Build(cfg *config.Config, vpns []vpn.Status, conns []stats.Con
 			ensureVPN(v.Name)
 		}
 	}
+	// A full tunnel that is up carries ALL traffic that is not pinned to a
+	// selective tunnel: show it as the first physical hop of every such chain
+	// instead of pretending "direct" leaves straight to the internet.
+	fullTunnel := ""
+	for _, v := range vpns {
+		if v.State == vpn.StateUp && v.Mode == config.VPNModeFull {
+			fullTunnel = v.Name
+			break
+		}
+	}
+	g.FullTunnel = fullTunnel
+	if fullTunnel != "" {
+		if n := nodes[vpnID(fullTunnel)]; n != nil {
+			n.Detail = "full tunnel — default route, carries all traffic"
+		}
+	}
+	// local=true for LAN/loopback destinations: wg-quick's policy routing
+	// ("lookup main suppress_prefixlength 0") keeps connected/LAN routes
+	// ahead of the tunnel, so those never enter it.
+	withFullTunnel := func(out []string, local bool) []string {
+		if fullTunnel == "" || local {
+			return out
+		}
+		for _, id := range out {
+			if strings.HasPrefix(id, "vpn:") {
+				return out // already pinned to a tunnel (explicit vpn hop or via_vpn proxy)
+			}
+		}
+		// insert right after the local prefix (this machine, intercept)
+		i := 1
+		if i < len(out) && out[i] == nodeIntercpt {
+			i++
+		}
+		res := make([]string, 0, len(out)+1)
+		res = append(res, out[:i]...)
+		res = append(res, vpnID(fullTunnel))
+		res = append(res, out[i:]...)
+		return res
+	}
 
 	proxyByName := map[string]config.Proxy{}
 	for _, p := range cfg.Proxies {
@@ -192,7 +236,7 @@ func (b *Builder) Build(cfg *config.Config, vpns []vpn.Status, conns []stats.Con
 
 	// chain builds the ordered node ids for an action/proxy/vpn triple, ending
 	// at terminal (a dst id or "internet"/"blocked").
-	chain := func(action, proxyName, vpnName, terminal string) ([]string, bool) {
+	chain := func(action, proxyName, vpnName, terminal string, local bool) ([]string, bool) {
 		out := []string{nodeThis}
 		if interceptOn && action == string(config.ActionIntercept) {
 			out = append(out, nodeIntercpt)
@@ -238,6 +282,7 @@ func (b *Builder) Build(cfg *config.Config, vpns []vpn.Status, conns []stats.Con
 				}
 			}
 		}
+		out = withFullTunnel(out, local)
 		out = append(out, terminal)
 		return out, ok
 	}
@@ -250,7 +295,7 @@ func (b *Builder) Build(cfg *config.Config, vpns []vpn.Status, conns []stats.Con
 			terminal = nodeBlocked
 			hasBlock = true
 		}
-		path, _ := chain(string(r.Action), r.Proxy, r.VPN, terminal)
+		path, _ := chain(string(r.Action), r.Proxy, r.VPN, terminal, targetsLocal(r.Targets))
 		g.Paths = append(g.Paths, Path{
 			Rule: r.Name, Action: string(r.Action), Match: matchSummary(r),
 			Nodes: path, Enabled: r.IsEnabled(),
@@ -299,7 +344,7 @@ func (b *Builder) Build(cfg *config.Config, vpns []vpn.Status, conns []stats.Con
 		} else {
 			terminal = destID(c.Host, c.DstIP)
 		}
-		path, _ := chain(c.Action, c.Via, c.VPN, terminal)
+		path, _ := chain(c.Action, c.Via, c.VPN, terminal, addrLocal(c.DstIP))
 
 		lv := Live{ID: c.ID, App: c.App, Host: c.Host, DstIP: c.DstIP, Port: c.DstPort,
 			Action: c.Action, Via: c.Via, VPN: c.VPN, Nodes: path, State: string(c.State),
@@ -420,6 +465,41 @@ func matchSummary(r config.Rule) string {
 		return "any"
 	}
 	return strings.Join(parts, " ")
+}
+
+// targetsLocal reports whether a rule only matches LAN/loopback destinations.
+func targetsLocal(targets []string) bool {
+	if len(targets) == 0 {
+		return false
+	}
+	for _, t := range targets {
+		switch strings.ToLower(strings.TrimSpace(t)) {
+		case "lan", "localhost", "loopback", "local", "private":
+			continue
+		}
+		if !addrLocal(t) {
+			return false
+		}
+	}
+	return true
+}
+
+// addrLocal is true for loopback, link-local and RFC1918/ULA addresses or prefixes.
+func addrLocal(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	var a netip.Addr
+	if p, err := netip.ParsePrefix(s); err == nil {
+		a = p.Addr()
+	} else if ap, err := netip.ParseAddr(s); err == nil {
+		a = ap
+	} else {
+		return false
+	}
+	a = a.Unmap()
+	return a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast()
 }
 
 func hostOnly(addr string) string {

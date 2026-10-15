@@ -138,7 +138,7 @@ func New(store *config.Store, runDir string) *Daemon {
 		d.Icpt = ic
 		ic.ClientLookup = func(src, dst netip.AddrPort) (string, int) {
 			if p, _, err := d.Procs.Lookup(src, dst); err == nil {
-				return p.Name, p.PID
+				return p.DisplayName(), p.PID
 			}
 			return "", 0
 		}

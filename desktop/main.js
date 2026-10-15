@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
+const { createAlerts } = require('./alerts');
 
 // ---------------------------------------------------------------- constants
 const DEFAULT_URL = 'http://127.0.0.1:7471';
@@ -28,6 +29,17 @@ const startHiddenFlag = process.argv.includes('--hidden');
 // every upgrade. Disable Electron's HTTP cache so a new build is never masked
 // by a stale cached app.js/style.css (otherwise the window keeps the old UI).
 app.commandLine.appendSwitch('disable-http-cache');
+
+// Wayland compositors (Mutter/GNOME in particular) give clients no way to put
+// a window above all others or to raise/focus themselves, so a firewall prompt
+// window can open *behind* whatever the user is doing. alerts.js therefore
+// delivers prompts as GNOME notifications with action buttons (shell chrome is
+// always on top) and keeps the popup window as the detailed view. Under X11
+// alwaysOnTop works natively; opt in with CYBERBOBA_X11=1 (on this laptop the
+// GPU process crashes under XWayland, so it is not the default).
+if (process.platform === 'linux' && process.env.CYBERBOBA_X11) {
+  app.commandLine.appendSwitch('ozone-platform', 'x11');
+}
 
 // ---------------------------------------------------------------- config
 function readConfigFile() {
@@ -76,6 +88,7 @@ function setConfig(partial) {
 
 let config = getConfig();
 const daemonOrigin = () => new URL(config.url).origin;
+let alerts = null;            // system-wide prompts/notifications (alerts.js)
 
 // ---------------------------------------------------------------- API client
 async function api(apiPath, { method = 'GET', body, timeout = PROBE_TIMEOUT_MS } = {}) {
@@ -198,11 +211,15 @@ function openExternal(url) {
   } catch { /* ignore malformed */ }
 }
 
-function showWindow() {
+function showWindow(hash) {
   if (!win) createWindow();
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+  // Jump to a page of the daemon UI (e.g. '#/firewall') when it is loaded.
+  if (typeof hash === 'string' && hash.startsWith('#') && !showingOffline && win.webContents) {
+    win.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {});
+  }
 }
 
 // Probe the daemon; load the web UI when reachable, the offline page otherwise.
@@ -387,7 +404,7 @@ function buildTrayMenu(status) {
       label: `${v.name} \u2014 ${v.state || 'unknown'}`,
       click: () => trayAction(`vpn ${v.name}`, async () => {
         const up = v.state === 'up' || v.state === 'connecting';
-        await api(`/api/vpn/${encodeURIComponent(v.name)}/${up ? 'down' : 'up'}`, { method: 'POST', timeout: 15000 });
+        await api(`/api/vpn/${encodeURIComponent(v.name)}/${up ? 'down' : 'up'}`, { method: 'POST', timeout: 45000 });
       }),
     }))
     : [{ label: online ? '(no VPN profiles)' : '(daemon offline)', enabled: false }];
@@ -517,7 +534,7 @@ function quit() {
 ipcMain.handle('cyberboba:startService', () => startService());
 ipcMain.handle('cyberboba:retry', async () => ({ ok: await loadUI() }));
 ipcMain.handle('cyberboba:getConfig', () => ({ ...getConfig(), autostart: isAutostartEnabled(), startHiddenFlag }));
-ipcMain.handle('cyberboba:setConfig', (e, partial) => { config = setConfig(partial); return config; });
+ipcMain.handle('cyberboba:setConfig', (e, partial) => { config = setConfig(partial); if (alerts) alerts.restart(); return config; });
 ipcMain.handle('cyberboba:openExternal', (e, url) => { openExternal(String(url)); });
 
 // ---------------------------------------------------------------- lifecycle
@@ -536,6 +553,8 @@ if (!gotLock) {
     } catch (err) {
       console.warn(`[tray] unavailable: ${err.message}`);
     }
+    alerts = createAlerts({ api, getConfig: () => config, showWindow, iconPath: APP_ICON });
+    alerts.start();
     await loadUI();
     if (startHiddenFlag || config.startHidden) {
       console.log('[app] started hidden (tray only)');
@@ -548,6 +567,7 @@ if (!gotLock) {
   app.on('window-all-closed', () => { /* keep running in the tray */ });
   app.on('before-quit', () => {
     quitting = true;
+    if (alerts) alerts.stop();
     if (trayTimer) clearInterval(trayTimer);
     stopOfflineRetry();
   });

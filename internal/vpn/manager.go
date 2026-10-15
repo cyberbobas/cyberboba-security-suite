@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,10 @@ type Status struct {
 	Table         int            `json:"table,omitempty"`
 	KillSwitch    bool           `json:"kill_switch_active"`
 	Reconnects    int            `json:"reconnects"`
+	// External is set when the interface exists but was brought up outside
+	// cyberboba (wg-quick by hand, a tray helper, NetworkManager). The tunnel
+	// is shown as up and can be taken down from here.
+	External bool `json:"external"`
 }
 
 // backend is implemented by the WireGuard and OpenVPN drivers.
@@ -131,13 +136,6 @@ func (m *Manager) SetConfig(cfg *config.Config) {
 			t.status = Status{Name: p.Name, Type: p.Type, Mode: p.Mode, State: StateDown, Interface: InterfaceName(p)}
 			t.be = m.newBackend(t)
 			m.tunnels[p.Name] = t
-			// Adopt an interface that already exists (daemon restart).
-			if t.be != nil && interfaceExists(t.status.Interface) && p.Type == config.VPNWireGuard {
-				now := time.Now()
-				t.status.State = StateUp
-				t.status.Since = &now
-				m.logf("info", "vpn %s: adopted existing interface %s", p.Name, t.status.Interface)
-			}
 		} else {
 			t.mu.Lock()
 			t.profile = p
@@ -190,12 +188,21 @@ func (m *Manager) Up(name string) error {
 		return err
 	}
 	t.mu.Lock()
-	if t.status.State == StateUp || t.status.State == StateConnecting {
+	if t.status.State == StateConnecting {
+		t.mu.Unlock()
+		return nil
+	}
+	// An interface brought up by NetworkManager is marked External. Treat it
+	// as "not ours" and take over instead of returning success with a tunnel
+	// we do not control.
+	if t.status.State == StateUp && !t.status.External && interfaceExists(t.status.Interface) {
+		t.wantUp = true
 		t.mu.Unlock()
 		return nil
 	}
 	t.status.State = StateConnecting
 	t.status.Error = ""
+	t.status.External = false
 	t.wantUp = true
 	t.mu.Unlock()
 	m.publish(t.snapshot())
@@ -297,12 +304,65 @@ func (m *Manager) All() []Status {
 	out := make([]Status, 0, len(ts))
 	for _, t := range ts {
 		t.mu.Lock()
+		before := t.status.State
 		t.be.Refresh(&t.status)
 		s := t.status
 		t.mu.Unlock()
+		if s.State != before {
+			m.publish(s)
+		}
 		out = append(out, s)
 	}
 	return out
+}
+
+// cleanupWgQuickRules removes the policy-routing rules a full-tunnel wg-quick
+// leaves behind when its interface is deleted with a `Table = off` config (or
+// by `ip link del`): "not fwmark X lookup X" and "main suppress_prefixlength 0".
+// Stale rules are harmless on their own but confuse later `wg-quick up`
+// runs and every diagnosis of "why does my traffic go nowhere".
+func cleanupWgQuickRules(table string) {
+	if table == "" {
+		return
+	}
+	for _, fam := range []string{"-4", "-6"} {
+		for i := 0; i < 20; i++ {
+			out, _ := exec.Command("ip", fam, "rule", "show").Output()
+			if !strings.Contains(string(out), "lookup "+table) {
+				break
+			}
+			if err := exec.Command("ip", fam, "rule", "delete", "table", table).Run(); err != nil {
+				break
+			}
+		}
+		for i := 0; i < 20; i++ {
+			out, _ := exec.Command("ip", fam, "rule", "show").Output()
+			if !strings.Contains(string(out), "suppress_prefixlength 0") {
+				break
+			}
+			if err := exec.Command("ip", fam, "rule", "delete", "table", "main", "suppress_prefixlength", "0").Run(); err != nil {
+				break
+			}
+		}
+	}
+}
+
+// wgFwmarkTable returns the decimal routing table a running wg-quick full
+// tunnel uses (its fwmark), or "" when the interface has no fwmark.
+func wgFwmarkTable(iface string) string {
+	out, err := exec.Command("wg", "show", iface, "fwmark").Output()
+	if err != nil {
+		return ""
+	}
+	v := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(v, "0x") {
+		return ""
+	}
+	n, err := strconv.ParseUint(v[2:], 16, 32)
+	if err != nil || n == 0 {
+		return ""
+	}
+	return strconv.FormatUint(n, 10)
 }
 
 // Log returns backend output.

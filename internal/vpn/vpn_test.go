@@ -33,6 +33,9 @@ func TestRenderSelectiveConfig(t *testing.T) {
 	if strings.Count(s, "Table = off") != 1 {
 		t.Fatalf("Table set twice:\n%s", s)
 	}
+	if !strings.Contains(s, "PersistentKeepalive = 25") {
+		t.Fatalf("keepalive not injected:\n%s", s)
+	}
 	mark, table := m.markTable("office")
 	if mark != 0x7401 || table != 7401 {
 		t.Fatalf("mark/table %x %d", mark, table)
@@ -48,5 +51,30 @@ func TestInterfaceName(t *testing.T) {
 	}
 	if n := InterfaceName(config.VPN{Type: config.VPNWireGuard, Config: "/x/wg0.conf"}); n != "wg0" {
 		t.Fatal(n)
+	}
+}
+
+func TestInferMode(t *testing.T) {
+	if InferMode("[Peer]\nAllowedIPs = 0.0.0.0/0, ::/0\n") != config.VPNModeFull {
+		t.Fatal("full")
+	}
+	if InferMode("[Peer]\nAllowedIPs = 10.0.0.0/8\n") != config.VPNModeSelective {
+		t.Fatal("selective")
+	}
+	if InferMode("redirect-gateway def1") != config.VPNModeFull {
+		t.Fatal("openvpn")
+	}
+}
+
+func TestEnsureKeepalive(t *testing.T) {
+	in := []string{"[Peer]", "PublicKey = x", "PersistentKeepalive = 0", ""}
+	out := strings.Join(ensureKeepalive(in), "\n")
+	if !strings.Contains(out, "PersistentKeepalive = 25") || strings.Contains(out, "PersistentKeepalive = 0") {
+		t.Fatal(out)
+	}
+	in = []string{"[Peer]", "PublicKey = x", "Endpoint = 1.2.3.4:51820"}
+	out = strings.Join(ensureKeepalive(in), "\n")
+	if !strings.Contains(out, "PersistentKeepalive = 25") {
+		t.Fatal(out)
 	}
 }

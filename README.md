@@ -57,9 +57,18 @@ multi‑hop routes (this‑machine → VPN/proxy hops → internet) visually.
 ### 🔐 VPN manager
 WireGuard (`wg-quick`) and OpenVPN profiles with two modes — `full` (classic
 default route) and `selective` (only the apps/hosts you route there use the
-tunnel, several tunnels at once). Kill switch, auto‑reconnect, and **rotation**
-groups that cycle the active tunnel on a timer. VPNs flagged **Autostart**
-come up automatically when the daemon boots.
+tunnel, several tunnels at once; needs rules, otherwise nothing uses it — the
+VPN page warns and offers a one‑click switch). New profiles default to `full`.
+A tunnel brought up outside cyberboba (`wg-quick up` by hand, a tray helper) is
+adopted and shown as **up (external)**; Down works on it too. Kill switch,
+auto‑reconnect, and **rotation** groups that cycle the active tunnel on a
+timer. VPNs flagged **Autostart** come up automatically when the daemon boots.
+On nftables systems cyberboba relaxes wg‑quick's anti‑spoof `preraw` drop for
+loopback so transparent interception keeps working through a full tunnel.
+A full tunnel that is up is drawn automatically as the first hop of every
+chain that has no VPN of its own — on the Traffic map, in RouteBuilder (dashed
+implicit node), in the Rules live test and `cyberboba route-test` — because
+that is where the traffic physically goes.
 
 ### 🕵️ Intercepting HTTPS proxy (Caido/Burp‑style)
 Built‑in MITM proxy with its own CA: request/response history with bodies and

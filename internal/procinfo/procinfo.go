@@ -29,11 +29,44 @@ type Process struct {
 	Tag  string // CYBERBOBA_TAG from environ
 }
 
+// DisplayName is a non-empty label for UI/firewall prompts.
+func (p *Process) DisplayName() string {
+	if p == nil {
+		return ""
+	}
+	if p.Name != "" {
+		return p.Name
+	}
+	if p.Exe != "" {
+		return filepath.Base(p.Exe)
+	}
+	if p.PID > 0 {
+		return fmt.Sprintf("pid-%d", p.PID)
+	}
+	return ""
+}
+
+// TCP states from include/net/tcp_states.h (hex in /proc/net/tcp).
+const (
+	tcpEstablished = 0x01
+	tcpSynSent     = 0x02
+	tcpSynRecv     = 0x03
+	tcpFinWait1    = 0x04
+	tcpFinWait2    = 0x05
+	tcpTimeWait    = 0x06
+	tcpClose       = 0x07
+	tcpCloseWait   = 0x08
+	tcpLastAck     = 0x09
+	tcpListen      = 0x0A
+	tcpClosing     = 0x0B
+)
+
 type sockEntry struct {
 	local  netip.AddrPort
 	remote netip.AddrPort
 	uid    int
 	inode  uint64
+	state  byte
 }
 
 // Resolver caches pid metadata and the inode->pid mapping.
@@ -52,31 +85,65 @@ func New() *Resolver {
 
 // Lookup finds the process owning the client socket local=src remote=dst.
 // For a REDIRECTed connection, src is the accepted conn's RemoteAddr and dst
-// is the original destination (SO_ORIGINAL_DST).
-func (r *Resolver) Lookup(src, dst netip.AddrPort) (*Process, int, error) {
-	entries, err := readSockets(src.Addr().Is6() && !src.Addr().Is4In6())
-	if err != nil {
+// is the original destination (SO_ORIGINAL_DST). Optional hints are extra
+// remotes to try (the proxy's listen address after iptables REDIRECT, which
+// is what /proc/net/tcp often shows as rem_address).
+func (r *Resolver) Lookup(src, dst netip.AddrPort, hints ...netip.AddrPort) (*Process, int, error) {
+	// Fast, atomic path: ask the kernel (sock_diag) for exactly this socket.
+	// The /proc walk below can miss entries while a browser opens dozens of
+	// connections at once; the diag query cannot.
+	if inode, uid, err := diagLookup(src, dst); err == nil && inode != 0 {
+		pid := r.pidForInode(inode)
+		if pid <= 0 {
+			r.scanFDs()
+			pid = r.pidForInode(inode)
+		}
+		if pid <= 0 {
+			return nil, uid, fmt.Errorf("no process owns inode %d (sock_diag)", inode)
+		}
+		p := r.process(pid)
+		if p.UID < 0 {
+			p.UID = uid
+			p.User = r.userName(uid)
+		}
+		return p, uid, nil
+	}
+	// Fallback: walk /proc/net/tcp{,6}. Read both tables: a dual-stack (AF_INET6) client socket talking to an
+	// IPv4 peer shows up in /proc/net/tcp6 as ::ffff:a.b.c.d, never in
+	// /proc/net/tcp (Node/Bun/Java/Chromium utility processes do this).
+	entries, err := readSockets(false)
+	if e6, err6 := readSockets(true); err6 == nil {
+		entries = append(entries, e6...)
+	} else if err != nil {
 		return nil, -1, err
 	}
-	var found *sockEntry
-	for i := range entries {
-		e := &entries[i]
-		if e.local.Port() != src.Port() {
-			continue
+	found := pickSocket(entries, src, dst, hints)
+	if found == nil {
+		if extra := readOtherNetNS(); len(extra) > 0 {
+			found = pickSocket(append(entries, extra...), src, dst, hints)
 		}
-		if !e.local.Addr().Unmap().IsUnspecified() && e.local.Addr().Unmap() != src.Addr().Unmap() {
-			continue
+	}
+	if found == nil {
+		// Last resort: same local endpoint as Accept() reported, ignore remote.
+		found = pickLocal(entries, src)
+		if found == nil {
+			if extra := readOtherNetNS(); len(extra) > 0 {
+				found = pickLocal(extra, src)
+			}
 		}
-		if e.remote.Port() != dst.Port() || e.remote.Addr().Unmap() != dst.Addr().Unmap() {
-			continue
-		}
-		found = e
-		break
 	}
 	if found == nil {
 		return nil, -1, fmt.Errorf("socket %v->%v not found in /proc/net/tcp", src, dst)
 	}
+	if found.inode == 0 {
+		// Orphaned/TIME_WAIT sockets carry inode 0; nothing to map.
+		return nil, found.uid, fmt.Errorf("socket %v->%v has no inode yet", src, dst)
+	}
 	pid := r.pidForInode(found.inode)
+	if pid <= 0 {
+		r.scanFDs()
+		pid = r.pidForInode(found.inode)
+	}
 	if pid <= 0 {
 		return nil, found.uid, fmt.Errorf("no process owns inode %d", found.inode)
 	}
@@ -86,6 +153,161 @@ func (r *Resolver) Lookup(src, dst netip.AddrPort) (*Process, int, error) {
 		p.User = r.userName(found.uid)
 	}
 	return p, found.uid, nil
+}
+
+// pickSocket chooses the /proc/net/tcp row for a client connection.
+// After iptables REDIRECT the kernel often rewrites rem_address to the
+// proxy (127.0.0.1:7470) while Accept() reports either the original source
+// IP or loopback — exact (src, dst) matching misses most of those sockets.
+func pickSocket(entries []sockEntry, src, dst netip.AddrPort, hints []netip.AddrPort) *sockEntry {
+	type cand struct {
+		e *sockEntry
+		s int
+	}
+	var best cand
+	nEst := 0
+	var uniqueEst *sockEntry
+	for i := range entries {
+		e := &entries[i]
+		sc := scoreSocket(e, src, dst, hints)
+		if sc < 0 {
+			continue
+		}
+		if e.state == tcpEstablished && e.local.Port() == src.Port() {
+			nEst++
+			uniqueEst = e
+		}
+		if sc > best.s {
+			best = cand{e: e, s: sc}
+		}
+	}
+	if best.e != nil && best.s >= 12 {
+		return best.e
+	}
+	if nEst == 1 {
+		return uniqueEst
+	}
+	if best.e != nil && best.s >= 6 {
+		return best.e
+	}
+	return nil
+}
+
+func pickLocal(entries []sockEntry, src netip.AddrPort) *sockEntry {
+	sr := src.Addr().Unmap()
+	var fallback *sockEntry
+	n := 0
+	for i := range entries {
+		e := &entries[i]
+		if e.inode == 0 || e.local.Port() != src.Port() {
+			continue
+		}
+		switch e.state {
+		case tcpListen, tcpTimeWait, tcpClose, tcpClosing:
+			continue
+		}
+		if e.local.Addr().Unmap() == sr {
+			return e
+		}
+		if e.state == tcpEstablished {
+			n++
+			fallback = e
+		}
+	}
+	if n == 1 {
+		return fallback
+	}
+	return nil
+}
+
+// readOtherNetNS reads /proc/<pid>/net/tcp{,6} for processes whose network
+// namespace is not the daemon's (Flatpak, some Chromium sandboxes, containers).
+func readOtherNetNS() []sockEntry {
+	self, err := os.Readlink("/proc/self/ns/net")
+	if err != nil {
+		return nil
+	}
+	des, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{self: true}
+	var out []sockEntry
+	for _, de := range des {
+		pid := de.Name()
+		if pid[0] < '1' || pid[0] > '9' {
+			continue
+		}
+		ns, err := os.Readlink("/proc/" + pid + "/ns/net")
+		if err != nil || seen[ns] {
+			continue
+		}
+		seen[ns] = true
+		if v4, err := readSocketsPath("/proc/" + pid + "/net/tcp"); err == nil {
+			out = append(out, v4...)
+		}
+		if v6, err := readSocketsPath("/proc/" + pid + "/net/tcp6"); err == nil {
+			out = append(out, v6...)
+		}
+	}
+	return out
+}
+
+func scoreSocket(e *sockEntry, src, dst netip.AddrPort, hints []netip.AddrPort) int {
+	switch e.state {
+	case tcpListen, tcpTimeWait, tcpClose, tcpClosing:
+		return -1
+	}
+	if e.inode == 0 {
+		return -1
+	}
+	if e.local.Port() != src.Port() {
+		return -1
+	}
+	sl := e.local.Addr().Unmap()
+	sr := src.Addr().Unmap()
+	er := e.remote.Addr().Unmap()
+	dr := dst.Addr().Unmap()
+	score := 0
+	if sl == sr {
+		score += 10
+	} else if sl.IsUnspecified() {
+		score += 6
+	} else if sl.IsLoopback() || sr.IsLoopback() {
+		// REDIRECT: proxy sees 127.0.0.1, app bound to the NIC address.
+		score += 6
+	} else {
+		score += 1
+	}
+	if er == dr && e.remote.Port() == dst.Port() {
+		score += 40
+	} else if e.remote.Port() == dst.Port() {
+		score += 6
+	}
+	for _, h := range hints {
+		if !h.IsValid() {
+			continue
+		}
+		if e.remote.Port() == h.Port() {
+			// REDIRECT rewrites rem to the proxy port; the address may be
+			// loopback or the tunnel IP (10.x) rather than 127.0.0.1.
+			score += 14
+			if er == h.Addr().Unmap() || er.IsLoopback() {
+				score += 6
+			}
+			break
+		}
+	}
+	if er.IsLoopback() {
+		score += 8
+	}
+	switch e.state {
+	case tcpEstablished:
+		score += 4
+	case tcpSynSent, tcpSynRecv:
+		score += 2
+	}
+	return score
 }
 
 // ListeningPID returns the pid listening on addr (for proxy loop detection).
@@ -193,7 +415,14 @@ func (r *Resolver) scanFDs() {
 				continue
 			}
 			n, err := strconv.ParseUint(l[8:len(l)-1], 10, 64)
-			if err == nil {
+			if err != nil {
+				continue
+			}
+			// A socket inherited across fork shows up in several processes
+			// (bash's /dev/tcp fd in its `sleep` child, a browser's helper).
+			// /proc lists pids ascending, so keeping the first mapping
+			// attributes the connection to the parent that opened it.
+			if _, seen := m[n]; !seen {
 				m[n] = pid
 			}
 		}
@@ -261,6 +490,9 @@ func (r *Resolver) process(pid int) *Process {
 	return p
 }
 
+// UserName resolves a uid to a login name (cached).
+func (r *Resolver) UserName(uid int) string { return r.userName(uid) }
+
 func (r *Resolver) userName(uid int) string {
 	r.mu.Lock()
 	n, ok := r.users[uid]
@@ -283,6 +515,10 @@ func readSockets(v6 bool) ([]sockEntry, error) {
 	if v6 {
 		path = "/proc/net/tcp6"
 	}
+	return readSocketsPath(path)
+}
+
+func readSocketsPath(path string) ([]sockEntry, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -302,9 +538,10 @@ func readSockets(v6 bool) ([]sockEntry, error) {
 		if err1 != nil || err2 != nil {
 			continue
 		}
+		st, _ := strconv.ParseUint(f[3], 16, 8)
 		uid, _ := strconv.Atoi(f[7])
 		inode, _ := strconv.ParseUint(f[9], 10, 64)
-		out = append(out, sockEntry{local: local, remote: remote, uid: uid, inode: inode})
+		out = append(out, sockEntry{local: local, remote: remote, uid: uid, inode: inode, state: byte(st)})
 	}
 	return out, sc.Err()
 }

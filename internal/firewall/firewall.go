@@ -7,6 +7,7 @@ package firewall
 import (
 	"net/netip"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,11 +46,14 @@ type recentAsk struct {
 
 // Conn is the subset of a connection the firewall needs to decide.
 type Conn struct {
-	App, Exe, Cmd, Tag string
-	IP                 netip.Addr
-	Port               int
-	Host               string
-	PID                int
+	App, Exe, Cmd, Tag, User string
+	// Guess is a best-effort program name when the owning process could not
+	// be resolved (taken from earlier resolved connections to the same host).
+	Guess string
+	IP    netip.Addr
+	Port  int
+	Host  string
+	PID   int
 }
 
 // Decision is the firewall verdict for one connection.
@@ -67,6 +71,9 @@ type Ask struct {
 	ID      uint64    `json:"id"`
 	App     string    `json:"app"`
 	Exe     string    `json:"exe"`
+	Cmd     string    `json:"cmd,omitempty"`
+	User    string    `json:"user,omitempty"`
+	Guess   string    `json:"guess,omitempty"` // likely program when App is unresolved
 	PID     int       `json:"pid"`
 	Host    string    `json:"host"`
 	IP      string    `json:"ip"`
@@ -75,10 +82,11 @@ type Ask struct {
 	Waiting int       `json:"waiting"`
 	Created time.Time `json:"created"`
 
-	key     string
-	resolve chan bool
-	done    chan struct{}
-	result  bool
+	key        string
+	rememberAs string
+	resolve    chan bool
+	done       chan struct{}
+	result     bool
 }
 
 // blockPat is a compiled entry of Firewall.BlockedHosts: either a host/domain
@@ -415,8 +423,18 @@ func (e *Engine) ask(c Conn, zone string, cfg config.Firewall) Decision {
 		return Decision{Allow: true, Zone: zone, Reason: "allowed (no UI to prompt)"}
 	}
 	e.nextID++
-	a := &Ask{ID: e.nextID, App: c.App, Exe: c.Exe, PID: c.PID, Host: c.Host, Port: c.Port, Zone: zone,
-		Waiting: 1, Created: time.Now(), key: key, resolve: make(chan bool, 1), done: make(chan struct{})}
+	disp := c.App
+	if disp == "" && c.Exe != "" {
+		disp = filepath.Base(c.Exe)
+	}
+	if disp == "" && c.PID > 0 {
+		disp = "pid-" + strconv.Itoa(c.PID)
+	}
+	if disp == "" {
+		disp = "unknown program"
+	}
+	a := &Ask{ID: e.nextID, App: disp, Exe: c.Exe, Cmd: c.Cmd, User: c.User, Guess: c.Guess, PID: c.PID, Host: c.Host, Port: c.Port, Zone: zone,
+		Waiting: 1, Created: time.Now(), key: key, rememberAs: c.App, resolve: make(chan bool, 1), done: make(chan struct{})}
 	if c.IP.IsValid() {
 		a.IP = c.IP.String()
 	}
@@ -425,7 +443,7 @@ func (e *Engine) ask(c Conn, zone string, cfg config.Firewall) Decision {
 	e.mu.Unlock()
 
 	e.emit("fw_ask", a)
-	e.logf("warn", "firewall: %q wants %s access to %s:%d — awaiting decision (ask #%d)", c.App, zone, a.hostOrIP(), c.Port, a.ID)
+	e.logf("warn", "firewall: %q wants %s access to %s:%d — awaiting decision (ask #%d)", a.App, zone, a.hostOrIP(), c.Port, a.ID)
 
 	to := time.Duration(cfg.AskTimeoutSec) * time.Second
 	var allow bool
@@ -540,8 +558,12 @@ func (e *Engine) Answer(id uint64, allow, remember bool) bool {
 	if a == nil {
 		return false
 	}
-	if remember && a.App != "" {
-		e.remember(a.App, a.Zone, allow)
+	name := a.rememberAs
+	if name == "" {
+		name = a.App
+	}
+	if remember && name != "" && name != "unknown program" && !strings.HasPrefix(name, "pid-") && !strings.HasPrefix(name, "ip:") {
+		e.remember(name, a.Zone, allow)
 	}
 	if late {
 		return true

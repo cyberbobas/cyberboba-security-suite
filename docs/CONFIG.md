@@ -102,7 +102,7 @@ When `caido.enabled` is true a proxy named `caido.proxy_name` (default
 - name: office
   type: wireguard       # wireguard | openvpn
   config: /etc/cyberboba/vpn/office.conf   # WireGuard configs must end in .conf
-  mode: selective       # selective | full
+  mode: full            # full (default) | selective
   autostart: false
   interface: ""         # optional interface name override (WireGuard: file basename)
   auth_file: ""         # OpenVPN --auth-user-pass file
@@ -113,7 +113,10 @@ When `caido.enabled` is true a proxy named `caido.proxy_name` (default
   extra_args: []        # extra openvpn arguments
 ```
 
-* `full` – the tunnel behaves like a normal VPN client and takes the default route.
+* `full` (default) – the tunnel behaves like a normal VPN client and takes the default route.
+  If the interface already exists (brought up by hand / another tool) it is adopted
+  and reported with `external: true`; `down` tears it down and removes stale
+  wg-quick policy rules.
 * `selective` – the tunnel never touches the main routing table. WireGuard is
   started with `Table = off`; OpenVPN with `--route-noexec`. cyberboba creates
   routing table `table_base+1+index` with a default route through the tunnel and a

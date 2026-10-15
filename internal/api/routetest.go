@@ -13,6 +13,7 @@ import (
 	"cyberboba/internal/config"
 	"cyberboba/internal/rules"
 	"cyberboba/internal/upstream"
+	"cyberboba/internal/vpn"
 )
 
 // dialThroughRoute fetches url through the given route and records the exit IP,
@@ -108,6 +109,17 @@ func (s *Server) routeTest(w http.ResponseWriter, r *http.Request) {
 		out["index"] = d.Index
 	}
 	cfg := s.d.Store.Get()
+	// A full-mode tunnel that is up owns the default route: anything not
+	// pinned to its own VPN physically leaves through it.
+	for _, v := range s.d.VPN.All() {
+		if v.State == vpn.StateUp && v.Mode == config.VPNModeFull {
+			out["full_tunnel"] = v.Name
+			if d.VPN == "" && d.Action != config.ActionBlock {
+				out["via_full_tunnel"] = v.Name
+			}
+			break
+		}
+	}
 	route := upstream.Route{Action: d.Action, Proxy: d.Proxy, VPN: d.VPN}
 	switch d.Action {
 	case config.ActionBlock:

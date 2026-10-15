@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cyberboba — firewall</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0f1115; --card:#161a21; --line:#262c36; --fg:#e7ebf0; --muted:#8b95a5; --teal:#23c2d4; --red:#e5484d; --green:#3ecf8e; --yellow:#f5b83d; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif; overflow:hidden; }
+  body { display:flex; flex-direction:column; border:1px solid var(--line); border-radius:12px; }
+  .head { -webkit-app-region:drag; display:flex; align-items:center; gap:10px; padding:12px 16px 8px; user-select:none; }
+  .head .dot { width:10px; height:10px; border-radius:50%; background:var(--yellow); box-shadow:0 0 10px var(--yellow); animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity:.35; } }
+  .head b { font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+  .head .spacer { flex:1; }
+  .head .queued { font-size:12px; color:var(--muted); -webkit-app-region:no-drag; }
+  .body { padding:4px 16px 8px; flex:1; }
+  .app { font-size:20px; font-weight:650; margin:0 0 2px; word-break:break-all; }
+  .app.unknown { color:var(--yellow); }
+  .line { color:var(--fg); margin:4px 0; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .dst { color:var(--teal); font-weight:600; }
+  .exe { color:var(--muted); font-size:12px; word-break:break-all; margin-top:2px; }
+  .zone { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); color:var(--muted); }
+  label.rem { display:flex; align-items:center; gap:8px; margin-top:10px; color:var(--muted); font-size:13px; cursor:pointer; }
+  .timer { height:4px; background:var(--line); border-radius:2px; margin:10px 0 0; overflow:hidden; }
+  .timer i { display:block; height:100%; background:var(--teal); width:100%; transition:width 1s linear; }
+  .timer-txt { font-size:12px; color:var(--muted); margin-top:4px; }
+  .actions { display:flex; gap:10px; padding:8px 16px 14px; }
+  button { flex:1; padding:11px 14px; border-radius:10px; border:1px solid var(--line); background:#1d222b; color:var(--fg); font-size:15px; font-weight:600; cursor:pointer; }
+  button:hover { filter:brightness(1.15); }
+  button.allow { background:#163f33; border-color:#1f6b55; color:var(--green); }
+  button.deny { background:#4a1d20; border-color:#7a2b30; color:#ff8a8e; }
+  button.later { flex:0 0 auto; color:var(--muted); font-weight:500; }
+  kbd { font:11px ui-monospace,monospace; border:1px solid var(--line); border-radius:4px; padding:0 4px; color:var(--muted); margin-left:6px; }
+  .err { color:var(--red); font-size:12px; padding:0 16px 8px; min-height:16px; }
+</style>
+</head>
+<body>
+  <div class="head"><span class="dot"></span><b>Firewall — program wants network access</b><span class="spacer"></span><span class="queued" id="queued"></span></div>
+  <div class="body">
+    <div class="app" id="app">…</div>
+    <div class="exe" id="exe"></div>
+    <div class="line">is trying to reach <span class="dst mono" id="dst">…</span> in the <span class="zone" id="zone">internet</span> zone.</div>
+    <label class="rem"><input type="checkbox" id="remember" checked> <span id="remlabel">Remember this answer for this program</span></label>
+    <div class="timer"><i id="bar"></i></div>
+    <div class="timer-txt" id="timertxt"></div>
+  </div>
+  <div class="err" id="err"></div>
+  <div class="actions">
+    <button class="deny" id="deny">Deny<kbd>D</kbd></button>
+    <button class="allow" id="allow">Allow<kbd>Enter</kbd></button>
+    <button class="later" id="later" title="Decide later in the app; the daemon applies its timeout action">Later</button>
+  </div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let cur = null, timeoutSec = 40, timeoutAction = 'allow', tick = null, busy = false;
+
+  function stopTick() { if (tick) clearInterval(tick); tick = null; }
+  function render(payload) {
+    cur = payload.ask; timeoutSec = payload.timeoutSec || 40; timeoutAction = payload.timeoutAction || 'allow';
+    const a = cur;
+    const unresolved = !a.app || a.app === 'unknown program' || !(a.pid > 0);
+    const name = unresolved ? ('unknown program' + (a.guess ? ' — probably ' + a.guess : '')) : a.app;
+    $('app').textContent = name; $('app').classList.toggle('unknown', unresolved);
+    const bits = [];
+    if (a.exe) bits.push(a.exe);
+    if (a.pid > 0) bits.push('pid ' + a.pid);
+    if (a.user) bits.push('user ' + a.user);
+    if (a.cmd && a.cmd !== a.exe) bits.push(a.cmd);
+    if (unresolved) bits.push('the owning process exited or could not be resolved' + (a.guess ? '; earlier connections to this host came from ' + a.guess : ''));
+    $('exe').textContent = bits.join('  ·  ');
+    $('dst').textContent = (a.host || a.ip || '?') + (a.port ? ':' + a.port : '') + (a.host && a.ip && a.host !== a.ip ? '  (' + a.ip + ')' : '');
+    $('zone').textContent = a.zone || 'internet';
+    $('remember').checked = !unresolved; $('remember').disabled = unresolved;
+    $('remlabel').textContent = !unresolved ? 'Remember this answer for ' + a.app + ' (' + (a.zone || 'internet') + ' zone)' : 'Cannot remember: program unknown (one-time decision)';
+    $('queued').textContent = payload.queued > 0 ? payload.queued + ' more waiting' : '';
+    $('err').textContent = '';
+    busy = false;
+    stopTick();
+    const created = a.created ? Date.parse(a.created) : Date.now();
+    const update = () => {
+      const left = Math.max(0, Math.round(timeoutSec - (Date.now() - created) / 1000));
+      $('bar').style.width = (timeoutSec > 0 ? (left / timeoutSec) * 100 : 100) + '%';
+      $('timertxt').textContent = timeoutSec > 0
+        ? (left > 0 ? 'auto-' + (timeoutAction === 'block' ? 'deny' : 'allow') + ' in ' + left + ' s if you do nothing' : 'timed out — the daemon applied its default (' + timeoutAction + ')')
+        : 'waiting for your decision (no timeout)';
+    };
+    update(); tick = setInterval(update, 1000);
+  }
+  async function answer(allow) {
+    if (!cur || busy) return;
+    busy = true;
+    const r = await window.cyberbobaPrompt.answer(cur.id, allow, $('remember').checked);
+    if (r && !r.ok) { $('err').textContent = r.error || 'failed'; busy = false; }
+  }
+  $('allow').onclick = () => answer(true);
+  $('deny').onclick = () => answer(false);
+  $('later').onclick = () => { if (cur) window.cyberbobaPrompt.skip(cur.id); };
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') answer(true);
+    else if (e.key === 'd' || e.key === 'D') answer(false);
+    else if (e.key === 'Escape') $('later').onclick();
+  });
+  window.cyberbobaPrompt.onAsk(render);
+  window.cyberbobaPrompt.onResolved(({ id }) => { if (cur && cur.id === id) { stopTick(); $('timertxt').textContent = 'resolved'; } });
+})();
+</script>
+</body>
+</html>

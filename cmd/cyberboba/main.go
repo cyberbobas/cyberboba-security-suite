@@ -367,6 +367,7 @@ func cmdRouteTest(rest []string) {
 		Rule, Action, Proxy   string
 		VPN                   string
 		Hops                  []string
+		ViaFullTunnel         string `json:"via_full_tunnel"`
 		Blocked, Ok           bool
 		ExitIP, Country, Flag string
 		City, ISP             string
@@ -378,6 +379,8 @@ func cmdRouteTest(rest []string) {
 	path := []string{"this"}
 	if d.VPN != "" {
 		path = append(path, "vpn:"+d.VPN)
+	} else if d.ViaFullTunnel != "" {
+		path = append(path, "vpn:"+d.ViaFullTunnel+" (full tunnel)")
 	}
 	path = append(path, d.Hops...)
 	fmt.Printf("rule:   %s (%s)\n", d.Rule, d.Action)
@@ -1288,7 +1291,7 @@ func cmdVPN(rest []string) {
 	case "import":
 		fs := flag.NewFlagSet("import", flag.ExitOnError)
 		typ := fs.String("type", "", "wireguard|openvpn (auto)")
-		mode := fs.String("mode", "selective", "full|selective")
+		mode := fs.String("mode", "full", "full|selective")
 		_ = fs.Parse(rest[1:])
 		if fs.NArg() < 2 {
 			fatal("usage: cyberboba vpn import <name> <file> [-type t] [-mode m]")

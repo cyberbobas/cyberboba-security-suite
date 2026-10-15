@@ -446,7 +446,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"version":    app.Version,
 		"uptime_sec": int(time.Since(s.d.Started).Seconds()),
-		"proxify": map[string]interface{}{"enabled": cfg.Proxifier.Enabled, "listen_tcp": cfg.Proxifier.ListenTCP,
+		"proxify": map[string]interface{}{"enabled": s.d.NetfilterActive(), "listen_tcp": cfg.Proxifier.ListenTCP,
 			"listen_dns": cfg.Proxifier.ListenDNS, "listen_socks": cfg.Proxifier.ListenSOCKS, "listen_http": cfg.Proxifier.ListenHTTP, "ipv6": cfg.Proxifier.IPv6, "block_quic": cfg.Proxifier.BlockQUIC,
 			"netfilter_installed": s.d.NetfilterActive()},
 		"stats":     s.d.Tracker.Summary(),
@@ -508,7 +508,7 @@ func (s *Server) vpnImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if in.Mode == "" {
-		in.Mode = config.VPNModeSelective
+		in.Mode = vpn.InferMode(in.Content)
 	}
 	path, err := s.d.VPN.Import(s.d.VPNDir, in.Name, in.Type, in.Content)
 	if err != nil {
