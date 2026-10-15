@@ -1,0 +1,7 @@
+title: CyberBoba Security Suite
+description: >-
+  Agent-first Linux network-security suite — proxifier, VPN manager,
+  intercepting HTTPS proxy, DNS ad-block, per-app firewall, and an AI-agent
+  monitor that flags leaked secrets. Driven by HTTP API, CLI and a 92-tool MCP server.
+theme: jekyll-theme-cayman
+show_downloads: true

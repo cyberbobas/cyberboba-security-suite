@@ -27,7 +27,7 @@ Generic MCP client config (stdio):
 
 The server speaks JSON-RPC 2.0 over stdin/stdout (newline-delimited), protocol
 `2025-06-18` (also answers `2024-11-05` / `2025-03-26` clients), and exposes
-**70 tools**. Tool results are JSON text; errors come back as `isError: true`
+**92 tools**. Tool results are JSON text; errors come back as `isError: true`
 with a readable message.
 
 ### Tool map
@@ -35,7 +35,7 @@ with a readable message.
 | area | tools |
 |---|---|
 | status | `status`, `doctor`, `log`, `list_processes`, `list_installed_apps`, `list_connections`, `proxify` |
-| firewall (ZoneAlarm-style) | `firewall_status`, `firewall_pending`, `firewall_answer`, `firewall_answer_all`, `firewall_set_mode`, `firewall_lock`, `firewall_stealth`, `firewall_block`, `firewall_unblock`, `set_firewall` |
+| firewall (ZoneAlarm-style) | `firewall_status`, `firewall_activity` (what got blocked/prompted), `firewall_pending`, `firewall_answer`, `firewall_answer_all`, `firewall_set_mode`, `firewall_lock`, `firewall_stealth`, `firewall_block`, `firewall_unblock`, `set_firewall` |
 | config | `get_config`, `set_config` (YAML) |
 | rules | `list_rules`, `add_rule`, `delete_rule`, `set_rules`, `test_rule` |
 | proxies | `list_proxies`, `add_proxy`, `delete_proxy`, `set_proxies`, `check_proxy`, `rotation_status` (live rotate-group member) |
@@ -46,6 +46,10 @@ with a readable message.
 | tags | `list_tags` (cgroup groups from `cyberboba run -tag`, incl. UDP policy) |
 | processes | `list_processes` (quick name/exe/user list), `process_monitor` (Task-Manager snapshot: CPU%, memory, state, threads, connections, `system` flag), `kill_process` (signal a pid; TERM/KILL), `system_stats` (overall/per-core CPU, load, memory/swap, temperatures and fans) |
 | traffic map | `traffic_graph` (nodes/edges/paths + live connections with the hop chain and destination country), `traffic_map` (geographic live map: home + destinations with lat/lon, apps, ISP, bytes, blocked flag), `geo_lookup`, `test_route_live` (dial a host through the resolved route, report real exit IP/country), `probe_route` (live-test an unsaved VPN/proxy chain) |
+| bandwidth (GlassWire-style) | `bandwidth_usage` (live per-app up/down + data usage), `bandwidth_daily`, `bandwidth_alerts` (abnormal-transfer alerts), `bandwidth_reset` |
+| DNS ad-block (Pi-hole-style) | `dns_filter_status`, `dns_query_log`, `dns_block`, `dns_unblock`, `dns_refresh_lists`, `set_dns_filter` |
+| AI agents | `ai_agents` (which AI CLIs run, endpoints, leaked credentials), `ai_agent_log`, `monitor_ai_agents`, `stop_monitoring_ai_agents`, `intercept_findings` (passive-scan results) |
+| system | `system_reclaim` (free RAM/swap), `autostart_status`, `set_autostart` (start the daemon on boot) |
 
 MCP also exposes **resources** (`cyberboba://status`, `cyberboba://flows`, `cyberboba://flows/{id}`, `cyberboba://topology`, `cyberboba://config`,
 `cyberboba://ca.crt`, `cyberboba://openapi`, ...) and **prompts** (`route_app`, `capture_traffic`, `analyze_flows`).
@@ -130,7 +134,7 @@ rejects a change (validation errors list every problem in one message).
   (`curl --unix-socket`). Optional bearer token (`api.token`), also accepted as
   `?token=` for `EventSource`.
 * `GET /api/openapi.json` for the machine-readable surface; `docs/API.md` for field-level detail.
-* `GET /api/events` streams `conn`, `stats`, `vpn`, `caido`, `flow`, `intercept`, `log` events.
+* `GET /api/events` streams `conn`, `stats`, `vpn`, `caido`, `flow`, `intercept`, `log`, `fw_ask`/`fw_resolved`/`fw_block` (firewall), `bw_alert` (bandwidth anomaly) events.
 * All mutations are idempotent "replace the list" operations (`PUT /api/rules`,
   `PUT /api/proxies`, `PUT /api/vpn`, `PUT /api/config/yaml`); read, modify, write.
 * Configuration is validated as a whole; a rule referencing a missing proxy is

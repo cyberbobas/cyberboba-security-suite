@@ -135,6 +135,19 @@ Humans get the embedded **web UI** (`http://127.0.0.1:7471`) and an **Electron
 desktop app** (`desktop/`) with a tray icon. See `docs/AGENTS.md` first if you
 are an agent.
 
+## Screenshots
+
+| | |
+|---|---|
+| **AI Agents** — who's running, where they call, and leaked secrets | **Firewall** — ZoneAlarm-style, with a "what got blocked" activity log |
+| ![AI Agents](docs/screenshots/ai-agents.png) | ![Firewall](docs/screenshots/firewall.png) |
+| **Bandwidth** — per-app speed + anomaly alerts | **DNS** — Pi-hole-style ad/tracker blocking + live query log |
+| ![Bandwidth](docs/screenshots/bandwidth.png) | ![DNS](docs/screenshots/dns.png) |
+| **Intercept** — MITM history, hold/edit, passive scan | **Live Map** — where your traffic goes, per app |
+| ![Intercept](docs/screenshots/intercept.png) | ![Live Map](docs/screenshots/live-map.png) |
+| **Processes** — task manager + system stats | **Dashboard** — proxify state, live rates, tunnels |
+| ![Processes](docs/screenshots/processes.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+
 ## How it works
 
 ```
@@ -186,6 +199,29 @@ cd desktop && npm install && npm start
 ```
 
 **Uninstall:** `sudo make uninstall`.
+
+### Docker
+
+```sh
+docker build -t cyberboba .
+# networking features manipulate the host firewall, so run with host net + caps:
+docker run --rm --network host --cap-add=NET_ADMIN --cap-add=NET_RAW \
+  -v cyberboba-etc:/etc/cyberboba -v cyberboba-lib:/var/lib/cyberboba \
+  --name cyberboba cyberboba
+```
+
+Docker is handy for the UI/API/SOCKS-proxy; full transparent interception and
+VPNs need the host-level access above (the daemon edits the host's iptables).
+
+### Packages
+
+- **Arch / AUR:** a `PKGBUILD` ships in [`packaging/aur/`](packaging/aur/PKGBUILD)
+  — `makepkg -si` builds and installs the binaries, systemd unit and default config.
+- **Homebrew (Linux):** [`packaging/homebrew/cyberboba.rb`](packaging/homebrew/cyberboba.rb)
+  installs the binaries only (no systemd); for a full service use the AUR package
+  or `sudo make install`.
+- **Release tarball & AppImage:** prebuilt Linux amd64 binaries and the desktop
+  AppImage are attached to each [GitHub release](https://github.com/cyberbobas/cyberboba-security-suite/releases/latest).
 
 ## Quick tour
 
