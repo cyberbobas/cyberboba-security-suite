@@ -6,10 +6,11 @@
 
 Built so an AI agent (or you) can see and control *exactly* what every process on the machine does on the network.
 
-[![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![CI](https://github.com/cyberbobas/cyberboba-security-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberbobas/cyberboba-security-suite/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Platform](https://img.shields.io/badge/platform-Linux-333)](#install)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-[![MCP tools](https://img.shields.io/badge/MCP%20tools-91-7C3AED)](docs/AGENTS.md)
+[![MCP tools](https://img.shields.io/badge/MCP%20tools-92-7C3AED)](docs/AGENTS.md)
 
 ![demo](docs/demo.gif)
 
@@ -143,6 +144,19 @@ Humans get the embedded **web UI** (`http://127.0.0.1:7471`) and an **Electron
 desktop app** (`desktop/`) with a tray icon. See `docs/AGENTS.md` first if you
 are an agent.
 
+## Screenshots
+
+| | |
+|---|---|
+| **AI Agents** — who's running, where they call, and leaked secrets | **Firewall** — ZoneAlarm-style, with a "what got blocked" activity log |
+| ![AI Agents](docs/screenshots/ai-agents.png) | ![Firewall](docs/screenshots/firewall.png) |
+| **Bandwidth** — per-app speed + anomaly alerts | **DNS** — Pi-hole-style ad/tracker blocking + live query log |
+| ![Bandwidth](docs/screenshots/bandwidth.png) | ![DNS](docs/screenshots/dns.png) |
+| **Intercept** — MITM history, hold/edit, passive scan | **Live Map** — where your traffic goes, per app |
+| ![Intercept](docs/screenshots/intercept.png) | ![Live Map](docs/screenshots/live-map.png) |
+| **Processes** — task manager + system stats | **Dashboard** — proxify state, live rates, tunnels |
+| ![Processes](docs/screenshots/processes.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+
 ## How it works
 
 ```
@@ -163,7 +177,7 @@ are an agent.
 ## Install
 
 **Requirements:** Linux with iptables (legacy or nft) and `ip`; optionally
-`wireguard-tools`, `openvpn`, `libnss3-tools` (for browser CA import). **Go ≥ 1.22** to build.
+`wireguard-tools`, `openvpn`, `libnss3-tools` (for browser CA import). **Go ≥ 1.26** to build.
 
 ```sh
 git clone https://github.com/<you>/cyberboba.git
@@ -194,6 +208,29 @@ cd desktop && npm install && npm start
 ```
 
 **Uninstall:** `sudo make uninstall`.
+
+### Docker
+
+```sh
+docker build -t cyberboba .
+# networking features manipulate the host firewall, so run with host net + caps:
+docker run --rm --network host --cap-add=NET_ADMIN --cap-add=NET_RAW \
+  -v cyberboba-etc:/etc/cyberboba -v cyberboba-lib:/var/lib/cyberboba \
+  --name cyberboba cyberboba
+```
+
+Docker is handy for the UI/API/SOCKS-proxy; full transparent interception and
+VPNs need the host-level access above (the daemon edits the host's iptables).
+
+### Packages
+
+- **Arch / AUR:** a `PKGBUILD` ships in [`packaging/aur/`](packaging/aur/PKGBUILD)
+  — `makepkg -si` builds and installs the binaries, systemd unit and default config.
+- **Homebrew (Linux):** [`packaging/homebrew/cyberboba.rb`](packaging/homebrew/cyberboba.rb)
+  installs the binaries only (no systemd); for a full service use the AUR package
+  or `sudo make install`.
+- **Release tarball & AppImage:** prebuilt Linux amd64 binaries and the desktop
+  AppImage are attached to each [GitHub release](https://github.com/cyberbobas/cyberboba-security-suite/releases/latest).
 
 ## Quick tour
 
@@ -243,6 +280,18 @@ internal/sysstat   CPU/mem/temps + reclaim           internal/topology   traffic
 internal/api       HTTP API        internal/mcp        MCP server (stdio + HTTP)
 web/               embedded web UI (vanilla JS)      desktop/   Electron shell
 ```
+
+## Windows & macOS
+
+The full transparent experience is Linux-native. On other platforms:
+
+- **Windows → WSL2 (recommended, full features):** run the daemon inside WSL2
+  and use the UI/desktop app from Windows. See the
+  **[Windows (WSL2) & macOS guide](docs/WINDOWS-WSL2.md)**.
+- **macOS / native Windows → "lite" mode:** prebuilt `darwin-*` and
+  `windows-amd64` binaries ship in each release and run the UI/API/MCP, upstream
+  proxies, the intercepting proxy as an *explicit* proxy and DNS filtering;
+  transparent interception, the app firewall and system monitors are Linux-only.
 
 ## Security & responsible use
 

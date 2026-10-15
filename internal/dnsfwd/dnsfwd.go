@@ -14,11 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
-	"golang.org/x/sys/unix"
 
 	"cyberboba/internal/config"
 	"cyberboba/internal/rules"
@@ -263,9 +261,7 @@ func (f *Forwarder) viaUDP(route upstream.Route, up string, mark uint32, q []byt
 			m = vm
 		}
 	}
-	d := net.Dialer{Timeout: 3 * time.Second, Control: func(network, address string, c syscall.RawConn) error {
-		return c.Control(func(fd uintptr) { _ = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, int(m)) })
-	}}
+	d := net.Dialer{Timeout: 3 * time.Second, Control: markControl(m)}
 	c, err := d.Dial("udp", up)
 	if err != nil {
 		return nil, err

@@ -14,10 +14,7 @@ import (
 	"net/netip"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"cyberboba/internal/config"
 )
@@ -391,21 +388,11 @@ func (d *Dialer) markForVPN(name string) (uint32, error) {
 // redirect it and policy routing can steer it.
 func (d *Dialer) dialMarked(ctx context.Context, mark uint32, addr string) (net.Conn, error) {
 	nd := net.Dialer{Timeout: d.Timeout}
-	nd.Control = func(network, address string, c syscall.RawConn) error {
-		var serr error
-		err := c.Control(func(fd uintptr) {
-			serr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, int(mark))
+	nd.Control = markControl(mark, func(err error) {
+		d.markWarn.Do(func() {
+			d.warnFn("cannot set SO_MARK (need CAP_NET_ADMIN): " + err.Error() + "; outbound sockets are unmarked")
 		})
-		if err != nil {
-			return err
-		}
-		if serr != nil {
-			d.markWarn.Do(func() {
-				d.warnFn("cannot set SO_MARK (need CAP_NET_ADMIN): " + serr.Error() + "; outbound sockets are unmarked")
-			})
-		}
-		return nil
-	}
+	})
 	return nd.DialContext(ctx, "tcp", addr)
 }
 

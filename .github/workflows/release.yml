@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build Go binaries
+        run: |
+          make build
+          VER="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          install -m0755 bin/cyberbobad bin/cyberboba dist/
+          tar -C dist -czf "dist/cyberboba-${VER}-linux-amd64.tar.gz" cyberbobad cyberboba
+          (cd dist && sha256sum "cyberboba-${VER}-linux-amd64.tar.gz" > "cyberboba-${VER}-linux-amd64.tar.gz.sha256")
+
+      - name: Cross-platform binaries (lite mode)
+        run: |
+          VER="${GITHUB_REF_NAME}"
+          for t in darwin/arm64 darwin/amd64 windows/amd64; do
+            export GOOS="${t%/*}" GOARCH="${t#*/}"; ext=""
+            [ "$GOOS" = windows ] && ext=".exe"
+            od="cyberboba-${VER}-${GOOS}-${GOARCH}"; mkdir -p "dist/$od"
+            go build -ldflags "-s -w -X cyberboba/internal/app.Version=${VER} -X cyberboba/internal/mcp.Version=${VER}" -o "dist/$od/cyberbobad$ext" ./cmd/cyberbobad
+            go build -ldflags "-s -w" -o "dist/$od/cyberboba$ext" ./cmd/cyberboba
+            tar -C dist -czf "dist/$od.tar.gz" "$od"
+          done
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build desktop AppImage (best effort)
+        continue-on-error: true
+        run: |
+          cd desktop
+          npm install
+          npx --no-install electron-builder --linux AppImage --publish never
+          mkdir -p ../dist
+          for f in dist/*.AppImage; do cp "$f" "../dist/cyberboba-${GITHUB_REF_NAME}-linux-x86_64.AppImage"; done 2>/dev/null || true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/cyberboba-*.tar.gz
+            dist/cyberboba-*.tar.gz.sha256
+            dist/*.AppImage

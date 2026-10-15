@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"cyberboba/internal/osutil"
 	"time"
 
 	"cyberboba/internal/config"
@@ -188,7 +190,7 @@ func (m *Manager) Start() error {
 	args := []string{"--listen", c.Listen, "--no-open", "--data-path", data}
 	args = append(args, c.ExtraArgs...)
 	cmd := exec.Command(bin, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	osutil.SetPgid(cmd)
 	cmd.Env = append(os.Environ(), "HOME="+data)
 	out, err := cmd.StdoutPipe()
 	if err != nil {

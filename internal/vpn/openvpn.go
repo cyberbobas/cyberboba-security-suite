@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"cyberboba/internal/osutil"
 	"time"
 
 	"cyberboba/internal/config"
@@ -87,7 +89,7 @@ func (o *openvpn) Up() error {
 	args = append(args, p.ExtraArgs...)
 	cmd := exec.Command("openvpn", args...)
 	cmd.Dir = filepath.Dir(cfgPath)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	osutil.SetPgid(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err

@@ -1,0 +1,8 @@
+.git
+bin/
+dist/
+desktop/
+docs/demo.gif
+docs/demo.mp4
+docs/screenshots/
+*.tmp

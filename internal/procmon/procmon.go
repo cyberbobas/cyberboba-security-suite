@@ -203,7 +203,7 @@ func (m *Monitor) Kill(pid int, sig string) error {
 	case "INT", "2":
 		s = syscall.SIGINT
 	}
-	return syscall.Kill(pid, s)
+	return killProc(pid, s)
 }
 
 func stateName(s string) string {

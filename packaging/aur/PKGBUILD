@@ -1,0 +1,34 @@
+# Maintainer: cyberbobas <forexjoker@gmail.com>
+pkgname=cyberboba
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Agent-first Linux network-security suite: proxifier, VPN manager, intercepting HTTPS proxy, DNS ad-block, per-app firewall, and a 92-tool MCP server"
+arch=('x86_64')
+url="https://github.com/cyberbobas/cyberboba-security-suite"
+license=('Apache-2.0')
+depends=('iptables' 'iproute2')
+optdepends=('wireguard-tools: WireGuard VPN profiles'
+            'openvpn: OpenVPN profiles'
+            'nss: import the intercept CA into Firefox/Chromium')
+makedepends=('go')
+backup=('etc/cyberboba/config.yaml')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "cyberboba-security-suite-$pkgver"
+  export CGO_ENABLED=0 GOFLAGS="-trimpath -mod=readonly"
+  make build
+}
+
+package() {
+  cd "cyberboba-security-suite-$pkgver"
+  install -Dm755 bin/cyberbobad "$pkgdir/usr/bin/cyberbobad"
+  install -Dm755 bin/cyberboba  "$pkgdir/usr/bin/cyberboba"
+  # systemd unit (point ExecStart at /usr/bin, Arch's binary location)
+  sed 's#/usr/local/bin#/usr/bin#g' packaging/cyberboba.service \
+    | install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/system/cyberboba.service"
+  install -Dm600 packaging/config.example.yaml "$pkgdir/etc/cyberboba/config.yaml"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
