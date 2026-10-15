@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"syscall"
 	"time"
 )
 
@@ -66,7 +65,7 @@ func Reclaim(caches, compact, swap bool) ReclaimResult {
 // dropCaches flushes dirty pages to disk and then releases the reclaimable
 // page cache. Writing 3 drops pagecache + slab (dentries/inodes).
 func dropCaches() error {
-	syscall.Sync()
+	osSync()
 	return writeProc("/proc/sys/vm/drop_caches", "3")
 }
 

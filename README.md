@@ -272,6 +272,18 @@ internal/api       HTTP API        internal/mcp        MCP server (stdio + HTTP)
 web/               embedded web UI (vanilla JS)      desktop/   Electron shell
 ```
 
+## Windows & macOS
+
+The full transparent experience is Linux-native. On other platforms:
+
+- **Windows → WSL2 (recommended, full features):** run the daemon inside WSL2
+  and use the UI/desktop app from Windows. See the
+  **[Windows (WSL2) & macOS guide](docs/WINDOWS-WSL2.md)**.
+- **macOS / native Windows → "lite" mode:** prebuilt `darwin-*` and
+  `windows-amd64` binaries ship in each release and run the UI/API/MCP, upstream
+  proxies, the intercepting proxy as an *explicit* proxy and DNS filtering;
+  transparent interception, the app firewall and system monitors are Linux-only.
+
 ## Security & responsible use
 
 CyberBoba is a **defensive and introspection** tool for machines **you own or
