@@ -27,18 +27,6 @@ jobs:
           tar -C dist -czf "dist/cyberboba-${VER}-linux-amd64.tar.gz" cyberbobad cyberboba
           (cd dist && sha256sum "cyberboba-${VER}-linux-amd64.tar.gz" > "cyberboba-${VER}-linux-amd64.tar.gz.sha256")
 
-      - name: Cross-platform binaries (lite mode)
-        run: |
-          VER="${GITHUB_REF_NAME}"
-          for t in darwin/arm64 darwin/amd64 windows/amd64; do
-            export GOOS="${t%/*}" GOARCH="${t#*/}"; ext=""
-            [ "$GOOS" = windows ] && ext=".exe"
-            od="cyberboba-${VER}-${GOOS}-${GOARCH}"; mkdir -p "dist/$od"
-            go build -ldflags "-s -w -X cyberboba/internal/app.Version=${VER} -X cyberboba/internal/mcp.Version=${VER}" -o "dist/$od/cyberbobad$ext" ./cmd/cyberbobad
-            go build -ldflags "-s -w" -o "dist/$od/cyberboba$ext" ./cmd/cyberboba
-            tar -C dist -czf "dist/$od.tar.gz" "$od"
-          done
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

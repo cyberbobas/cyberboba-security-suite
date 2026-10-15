@@ -1,6 +1,6 @@
 # Maintainer: cyberbobas <forexjoker@gmail.com>
 pkgname=cyberboba
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Agent-first Linux network-security suite: proxifier, VPN manager, intercepting HTTPS proxy, DNS ad-block, per-app firewall, and a 92-tool MCP server"
 arch=('x86_64')

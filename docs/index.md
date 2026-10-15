@@ -2,7 +2,7 @@
 title: CyberBoba Security Suite
 ---
 
-# 🔱 CyberBoba Security Suite
+# CyberBoba Security Suite
 
 **A Proxifier, VPN manager, intercepting HTTPS proxy, DNS ad-blocker, per-app
 firewall and network monitor — in one agent-first daemon for Linux.**

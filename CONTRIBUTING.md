@@ -9,7 +9,7 @@ contract in mind for any new capability.
 
 - Linux (iptables legacy/nft, `ip`). For full functionality: `wireguard-tools`,
   `openvpn`, `libnss3-tools`.
-- **Go ≥ 1.26** to build.
+- **Go 1.26 or newer** to build (`go.mod` pins the language version).
 - Node/npm only if you touch the Electron desktop shell (`desktop/`).
 
 ## Build & run

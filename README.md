@@ -1,315 +1,260 @@
-<div align="center">
+# CyberBoba Security Suite
 
-# 🔱 CyberBoba Security Suite
-
-**A Proxifier, VPN manager, intercepting HTTPS proxy, DNS ad‑blocker, per‑app firewall and network monitor — in one agent‑first daemon for Linux.**
-
-Built so an AI agent (or you) can see and control *exactly* what every process on the machine does on the network.
+Per-application network control for Linux in one daemon: Proxifier-style
+routing rules, a WireGuard/OpenVPN manager, an intercepting HTTPS proxy, DNS
+blocklists, an application firewall and a bandwidth monitor. Everything is
+driven the same three ways: HTTP API, CLI and an MCP server, with a web UI and
+an optional desktop app on top.
 
 [![CI](https://github.com/cyberbobas/cyberboba-security-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberbobas/cyberboba-security-suite/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![Platform](https://img.shields.io/badge/platform-Linux-333)](#install)
+[![Platform](https://img.shields.io/badge/platform-Linux-333)](#requirements)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-[![MCP tools](https://img.shields.io/badge/MCP%20tools-92-7C3AED)](docs/AGENTS.md)
 
 ![demo](docs/demo.gif)
 
-</div>
+## What it does
 
----
+- **Per-app routing (Proxifier for Linux).** Rules match a process (name,
+  path, command line, user, tag) and a destination (host, IP/CIDR, port,
+  protocol) and send the connection direct, through a SOCKS5/HTTP proxy or a
+  proxy chain, through a VPN, into the interceptor, or block it. Transparent:
+  applications are not reconfigured.
+- **VPN manager.** WireGuard (`wg-quick`) and OpenVPN profiles. `full` mode is
+  a classic VPN (default route for everything). `selective` mode keeps the
+  tunnel off the main routing table and only rule-routed traffic uses it, so
+  several tunnels can be up at once. Kill switch, auto-reconnect, rotation
+  groups. A tunnel brought up outside the daemon (`wg-quick up` by hand) is
+  detected and shown as `up (external)`.
+- **Intercepting HTTPS proxy.** Own CA, request/response history, hold and
+  edit, repeater, match-and-replace rewrites, sessions, HAR export, and a
+  passive scanner that flags leaked secrets, cleartext credentials, insecure
+  cookies, missing security headers and CORS problems.
+- **Application firewall.** Ask/allow/block per program and zone (LAN vs
+  internet), a host blocklist that applies to every program, inbound stealth
+  mode and an internet-lock switch. Prompts are delivered system-wide by the
+  desktop app (notification banners with Allow / Allow always / Deny).
+- **DNS filtering.** Pi-hole-style blocklists (hosts and domain lists),
+  manual block/allow entries, NXDOMAIN or sinkhole answers, live query log.
+- **Monitoring.** Live connection table with the owning process, per-app
+  bandwidth with data-usage history and anomaly alerts, a geographic live map,
+  a traffic map that shows the real path of every rule and connection
+  (including an active full tunnel), process viewer and system stats.
+- **AI agents view.** Recognises common AI coding agents (Claude Code, Codex,
+  Gemini CLI, Cursor, Copilot, aider, ...) and shows what they connect to and
+  whether a recorded request carried an API key or token.
 
-## What is this?
+Screenshots: [dashboard](docs/screenshots/dashboard.png) ·
+[firewall](docs/screenshots/firewall.png) · [live map](docs/screenshots/live-map.png) ·
+[intercept](docs/screenshots/intercept.png) · [AI agents](docs/screenshots/ai-agents.png) ·
+[bandwidth](docs/screenshots/bandwidth.png) · [DNS](docs/screenshots/dns.png) ·
+[processes](docs/screenshots/processes.png)
 
-CyberBoba is a single Linux daemon (`cyberbobad`) that sits under all of your
-outbound traffic and gives you **per‑application control and full visibility**:
-route any app through a proxy, a VPN or straight out; intercept and rewrite its
-HTTPS; block ads and trackers at the DNS layer; firewall it like ZoneAlarm;
-watch its bandwidth; and get alerted when something starts leaking secrets or
-exfiltrating data.
+## Requirements
 
-Every single feature is reachable three ways — **HTTP API → CLI → MCP tool** —
-so it is equally usable by a human (web UI + desktop app) and by an AI agent
-(91 MCP tools). That "agent‑first" design is the point: you can tell Claude
-*"route Firefox through my office VPN, block trackers, and tell me if any of my
-AI tools send an API key off the box"* and it can actually do it.
+- Linux with netfilter: `iptables` (legacy or nft backend), `ip` from
+  iproute2. The daemon runs as root (transparent interception, routing tables,
+  `/proc` access for process attribution).
+- Optional: `wireguard-tools` and/or `openvpn` for VPN profiles,
+  `libnss3-tools` (`certutil`) to import the intercept CA into Firefox and
+  Chromium profiles.
+- To build from source: Go 1.26 or newer.
+- Desktop app (optional): Node.js 20+ and npm. Firewall prompts with buttons
+  use the desktop's notification service through `python3-gi` (preinstalled on
+  GNOME and most desktops).
 
-## The problems it solves
-
-| Problem | How CyberBoba solves it |
-|---|---|
-| **Linux has no real Proxifier** — routing *specific apps* through *specific* proxies/VPNs is painful. | Transparent per‑app rules (name/path/tag/user × host/IP/port/proto) → direct / proxy / chain / VPN / block. No app reconfiguration. |
-| **You can't see what your apps actually send.** | Live connection table, geographic map, per‑app bandwidth, and a built‑in MITM proxy with full request/response history. |
-| **AI coding agents can leak secrets.** | A dedicated **AI Agents** control centre that recognises Claude Code, Codex, Gemini, Cursor, Copilot, aider, ollama… and flags any API key / password / token they send off the box. |
-| **Ads, trackers and malware domains.** | Pi‑hole‑style DNS filtering with subscription blocklists + a live query log. |
-| **Linux lacks a per‑app firewall.** | ZoneAlarm‑style application firewall: ask/allow/block per program and zone, stealth mode, host blocklist, panic "internet lock". |
-| **Data exfiltration / runaway uploads.** | GlassWire‑style bandwidth meter with an **anomaly alert** when an app's upload/download spikes far above its own baseline. |
-| **Automating any of the above.** | First‑class MCP server (stdio + HTTP), a `--json` CLI and a documented REST API. |
-
-## Features
-
-### 🧭 Proxifier (per‑app routing)
-Transparent, per‑application traffic rules enforced with iptables `REDIRECT`.
-Any process can be sent **direct**, through a **SOCKS5/HTTP proxy or chain**,
-through a **VPN tunnel**, or **blocked** — without configuring the application.
-Rules match on process name/path/tag/user, destination hostname/IP/CIDR, port
-and protocol, first‑match wins. A **RouteBuilder** canvas lets you draw
-multi‑hop routes (this‑machine → VPN/proxy hops → internet) visually.
-
-### 🔐 VPN manager
-WireGuard (`wg-quick`) and OpenVPN profiles with two modes — `full` (classic
-default route) and `selective` (only the apps/hosts you route there use the
-tunnel, several tunnels at once; needs rules, otherwise nothing uses it — the
-VPN page warns and offers a one‑click switch). New profiles default to `full`.
-A tunnel brought up outside cyberboba (`wg-quick up` by hand, a tray helper) is
-adopted and shown as **up (external)**; Down works on it too. Kill switch,
-auto‑reconnect, and **rotation** groups that cycle the active tunnel on a
-timer. VPNs flagged **Autostart** come up automatically when the daemon boots.
-On nftables systems cyberboba relaxes wg‑quick's anti‑spoof `preraw` drop for
-loopback so transparent interception keeps working through a full tunnel.
-A full tunnel that is up is drawn automatically as the first hop of every
-chain that has no VPN of its own — on the Traffic map, in RouteBuilder (dashed
-implicit node), in the Rules live test and `cyberboba route-test` — because
-that is where the traffic physically goes.
-
-### 🕵️ Intercepting HTTPS proxy (Caido/Burp‑style)
-Built‑in MITM proxy with its own CA: request/response history with bodies and
-body search, scope, **hold‑and‑edit** of live requests/responses, **match &
-replace** rewrites, a **repeater**, saved sessions, and HAR/curl export. Send
-any app into it with one rule (`action: intercept`) — no proxy settings in the
-app. You can also record just one program (e.g. only Chromium or only Claude).
-
-### 🔎 Passive security scanner
-Every recorded flow is automatically scanned for: leaked secrets/tokens
-(AWS, GCP, GitHub, Slack, Stripe, OpenAI, JWTs, private keys), credentials sent
-over plain HTTP, insecure cookies (missing Secure/HttpOnly/SameSite), missing
-security headers (CSP/HSTS/nosniff/X‑Frame‑Options), CORS wildcard‑with‑creds,
-version disclosure and mixed content. Findings are grouped by severity.
-
-### 🤖 AI Agents control centre  ⭐ *the headline feature*
-A dedicated page/API that recognises ~18 well‑known AI CLI/coding agents
-(Claude Code, Codex, Gemini, Grok, Cursor, Copilot, aider, cline, continue,
-goose, ollama, …), shows which are **running**, the **API endpoints** they
-contact, their **bandwidth**, and — most importantly — **any credentials/API
-keys/passwords they were seen sending off the machine**. One click to monitor
-all of them (transparently MITM + scan their API traffic).
-
-### 🛡️ DNS ad/tracker/malware blocking (Pi‑hole‑style)
-The built‑in DNS forwarder can load subscription blocklists (StevenBlack,
-AdGuard, OISD) plus manual allow/block entries, returning NXDOMAIN or a
-sinkhole address for bad domains. Every query is logged to a live monitor even
-when blocking is off.
-
-### 📊 Bandwidth monitor + anomaly alerts (GlassWire‑style)
-Live per‑app download/upload speed and this‑session / today / 30‑day data
-usage, persisted across restarts. An **anomaly detector** raises an alert
-(toast + nav badge + API/MCP event) when an app's upload or download runs far
-above its own recent baseline — catching exfiltration or a runaway process.
-
-### 🔥 Application firewall (ZoneAlarm‑style)
-Per‑program network control by zone (Trusted LAN vs Internet): off / ask /
-auto / block. "Ask" holds the connection and pops a prompt; answers can be
-remembered. Inbound **stealth** mode, a host blocklist enforced for every app,
-and a panic **Internet Lock** switch.
-
-### 🧰 Process & system monitor
-A built‑in task manager (CPU%, memory, threads, owner, per‑pid connection
-counts, safe kill), live system stats (per‑core CPU, load, memory/swap,
-temperatures/fans), and one‑click **memory/swap reclaim** when the box is
-sluggish.
-
-### 🌍 Live geographic map & tags
-An application‑centric world map of where your traffic goes (home → per
-app→host points with ISP/bytes, one‑click block). `cyberboba run -tag NAME --
-<cmd>` puts a program in a net_cls cgroup so a `tag:NAME` rule also governs its
-UDP (QUIC, games, VoIP), not just TCP.
-
-### 🚀 Autostart
-A Settings toggle enables starting the daemon on system boot (systemd); on
-boot the daemon comes up and Autostart‑flagged VPNs connect automatically.
-
-## Agent‑first: API → CLI → MCP
-
-Everything above is exposed identically through three layers:
-
-- **HTTP API** on `127.0.0.1:7471` (`/api/...`, OpenAPI at `/api/openapi.json`).
-- **CLI** `cyberboba <command>` (add `--json` for machine output).
-- **MCP server** — `cyberboba mcp` over stdio, or `POST /mcp` over HTTP — with
-  **91 tools**, resources and prompts. Wire it into Claude Code with:
-
-  ```sh
-  claude mcp add cyberboba -- cyberboba mcp
-  ```
-
-Humans get the embedded **web UI** (`http://127.0.0.1:7471`) and an **Electron
-desktop app** (`desktop/`) with a tray icon. See `docs/AGENTS.md` first if you
-are an agent.
-
-## Screenshots
-
-| | |
-|---|---|
-| **AI Agents** — who's running, where they call, and leaked secrets | **Firewall** — ZoneAlarm-style, with a "what got blocked" activity log |
-| ![AI Agents](docs/screenshots/ai-agents.png) | ![Firewall](docs/screenshots/firewall.png) |
-| **Bandwidth** — per-app speed + anomaly alerts | **DNS** — Pi-hole-style ad/tracker blocking + live query log |
-| ![Bandwidth](docs/screenshots/bandwidth.png) | ![DNS](docs/screenshots/dns.png) |
-| **Intercept** — MITM history, hold/edit, passive scan | **Live Map** — where your traffic goes, per app |
-| ![Intercept](docs/screenshots/intercept.png) | ![Live Map](docs/screenshots/live-map.png) |
-| **Processes** — task manager + system stats | **Dashboard** — proxify state, live rates, tunnels |
-| ![Processes](docs/screenshots/processes.png) | ![Dashboard](docs/screenshots/dashboard.png) |
-
-## How it works
-
-```
- app ──TCP──► iptables nat OUTPUT (REDIRECT) ──► cyberbobad :7470 ──► rule engine ──┬─► direct (SO_MARK bypass)
-                                                                                   ├─► SOCKS5 / HTTP proxy / chain
-   DNS :53 ──REDIRECT──► cyberbobad :7453 (forwarder, ip→host cache + ad‑block)     ├─► VPN (SO_MARK → policy routing table)
-   app ──SOCKS5/HTTP proxy──► cyberbobad :7472 / :7473 (optional, no root needed)   ├─► intercept (MITM :8080)
-                                                                                   └─► block
-```
-
-- The owning process of each connection is resolved via `/proc/net/tcp` +
-  `/proc/<pid>/fd` (like `ss -p`).
-- Hostnames come from the DNS cache, TLS SNI / HTTP `Host` sniffing, or the
-  SOCKS5 request, so `*.example.com` rules work.
-- The daemon's own sockets carry an fwmark so they are never re‑intercepted;
-  selective VPNs get their own routing table selected by fwmark.
+Tested on Ubuntu 24.04-based systems (Zorin OS 18) and Ubuntu 20.04-based
+systems (Linux Mint 20). Other distributions with systemd and iptables should
+work the same way.
 
 ## Install
 
-**Requirements:** Linux with iptables (legacy or nft) and `ip`; optionally
-`wireguard-tools`, `openvpn`, `libnss3-tools` (for browser CA import). **Go ≥ 1.26** to build.
+### From source (recommended)
 
 ```sh
-git clone https://github.com/<you>/cyberboba.git
-cd cyberboba
+git clone https://github.com/cyberbobas/cyberboba-security-suite.git
+cd cyberboba-security-suite
 
-make build                 # → bin/cyberbobad, bin/cyberboba
-sudo make install          # → /usr/local/bin, /etc/cyberboba/config.yaml, systemd unit
+make build                 # builds bin/cyberbobad (daemon) and bin/cyberboba (CLI)
+sudo make install          # /usr/local/bin, /etc/cyberboba/config.yaml, systemd unit
 sudo systemctl daemon-reload
 sudo systemctl enable --now cyberboba
 
-cyberboba status           # or open http://127.0.0.1:7471
+cyberboba status           # daemon status; web UI at http://127.0.0.1:7471
+cyberboba doctor           # checks iptables, ip, wg, openvpn, certutil, /dev/net/tun
 ```
 
-To trust the intercept CA (so MITM'd HTTPS is seen without browser warnings):
+`make install` never overwrites an existing `/etc/cyberboba/config.yaml`.
+
+To upgrade:
 
 ```sh
-sudo cyberboba intercept ca install   # system trust store + Firefox/Chromium NSS
+git pull
+make build && sudo make install && sudo systemctl restart cyberboba
 ```
 
-**Without root** the daemon still runs (`make run-dev`): the SOCKS5 (`:7472`) and
-HTTP (`:7473`) inbound proxy listeners, the rule engine, upstream proxies and the
-UI all work; transparent interception and VPNs need root.
+### From a release tarball
 
-**Desktop app** (optional, needs Node/npm):
+Each [release](https://github.com/cyberbobas/cyberboba-security-suite/releases/latest)
+ships `cyberboba-<version>-linux-amd64.tar.gz` with the two binaries only. It
+is meant for upgrading an existing install; for a first install use the source
+steps above, which also put the config and the systemd unit in place.
 
 ```sh
-cd desktop && npm install && npm start
+tar xzf cyberboba-v*-linux-amd64.tar.gz
+sudo install -m 0755 cyberbobad cyberboba /usr/local/bin/
+sudo systemctl restart cyberboba
 ```
 
-**Uninstall:** `sudo make uninstall`.
+### Desktop app
 
-### Docker
+The desktop app is an Electron shell around the daemon's web UI. It adds a
+tray icon, "start hidden at login", and the system-wide alerts: firewall
+prompts as notification banners with Allow / Allow always / Deny, an
+always-on-top prompt window with the details, and notifications for blocked
+connections, bandwidth anomalies and VPN state changes.
 
 ```sh
-docker build -t cyberboba .
-# networking features manipulate the host firewall, so run with host net + caps:
-docker run --rm --network host --cap-add=NET_ADMIN --cap-add=NET_RAW \
-  -v cyberboba-etc:/etc/cyberboba -v cyberboba-lib:/var/lib/cyberboba \
-  --name cyberboba cyberboba
+cd desktop
+npm install
+npm start
 ```
 
-Docker is handy for the UI/API/SOCKS-proxy; full transparent interception and
-VPNs need the host-level access above (the daemon edits the host's iptables).
+It is not packaged; `npm start` runs it from the source tree. The release
+workflow also attaches a best-effort AppImage to each release.
 
-### Packages
+### Arch Linux
 
-- **Arch / AUR:** a `PKGBUILD` ships in [`packaging/aur/`](packaging/aur/PKGBUILD)
-  — `makepkg -si` builds and installs the binaries, systemd unit and default config.
-- **Homebrew (Linux):** [`packaging/homebrew/cyberboba.rb`](packaging/homebrew/cyberboba.rb)
-  installs the binaries only (no systemd); for a full service use the AUR package
-  or `sudo make install`.
-- **Release tarball & AppImage:** prebuilt Linux amd64 binaries and the desktop
-  AppImage are attached to each [GitHub release](https://github.com/cyberbobas/cyberboba-security-suite/releases/latest).
+`packaging/aur/PKGBUILD` builds the binaries, the unit and the default config
+with `makepkg -si`. It is maintained in-tree and not published on the AUR.
 
-## Quick tour
+### Trust the intercept CA
+
+Needed only for the intercepting proxy, so browsers accept the rewritten TLS:
 
 ```sh
-cyberboba doctor                                  # environment checks
+sudo cyberboba intercept ca install    # system trust store + Firefox/Chromium NSS databases
+```
+
+### Uninstall
+
+```sh
+sudo make uninstall                              # stops the service, removes binaries and unit
+sudo rm -rf /etc/cyberboba /var/lib/cyberboba    # config, CA, state (optional)
+```
+
+### Without root
+
+`make run-dev` starts the daemon from the source tree without netfilter. The
+web UI, API, rule engine, upstream proxies and the SOCKS5 (`:7472`) / HTTP
+(`:7473`) inbound proxies work; transparent interception, VPNs and the
+firewall need the root install.
+
+## First steps
+
+```sh
 cyberboba rules                                   # ordered rule list
-cyberboba rules test firefox example.com:443      # which rule would match?
-cyberboba conns -follow                           # live connection log
-cyberboba vpn import office ~/office.conf -mode selective && cyberboba vpn up office
-cyberboba bandwidth                               # per-app up/down + data usage
-cyberboba bandwidth alerts                        # abnormal-transfer alerts
-cyberboba dns                                     # DNS filter status + query log
-cyberboba ai                                      # which AI agents are running + leaks
-cyberboba intercept findings                      # passive-scan findings
-cyberboba autostart on                            # start on system boot
+cyberboba rules test firefox example.com:443      # which rule would match
+cyberboba route-test https://ifconfig.me/ip       # dial through the matched route, show exit IP
+cyberboba conns -follow                           # live connection log with owning process
+cyberboba vpn import office ~/office.conf         # WireGuard/OpenVPN profile, full mode by default
+cyberboba vpn up office
+cyberboba firewall mode ask                       # prompt for every new program
+cyberboba dns on                                  # DNS blocklists
+cyberboba bandwidth                               # per-app speed and data usage
+cyberboba intercept record firefox                # record one app's HTTPS in the interceptor
 cyberboba run -tag pentest -- firefox             # rules can match "tag:pentest"
-claude mcp add cyberboba -- cyberboba mcp          # expose everything to Claude Code
 ```
 
-Example rules (`/etc/cyberboba/config.yaml`):
+Example rules in `/etc/cyberboba/config.yaml`:
 
 ```yaml
 rules:
   - {name: LAN, targets: [lan], action: direct}
-  - {name: Capture browsers, apps: [firefox, chrome], ports: ["80","443"], action: intercept}
+  - {name: Capture browsers, apps: [firefox, chrome], ports: ["80", "443"], action: intercept}
   - {name: Pentest tools, apps: ["tag:pentest"], action: proxy, proxy: socks-home}
   - {name: Work via office VPN, apps: [slack, "*teams*"], action: vpn, vpn: office}
   - {name: Kill telemetry, targets: ["*.telemetry.microsoft.com"], action: block}
   - {name: Default, action: direct}
 ```
 
-See **`docs/CONFIG.md`** for every option, **`docs/API.md`** for the HTTP API,
-and **`docs/AGENTS.md`** for the agent/MCP guide.
+The web UI has a visual RouteBuilder for the same thing: this machine, then
+VPN and proxy hops, then the internet, scoped to all traffic or to chosen
+applications.
+
+## Agents: API, CLI, MCP
+
+Every feature is reachable through the HTTP API, the CLI (`--json` for
+machine output, `cyberboba api METHOD /path` for raw calls) and the MCP server
+(92 tools, stdio and HTTP transports):
+
+```sh
+claude mcp add cyberboba -- cyberboba mcp         # Claude Code
+cyberboba --json conns                            # same data as the UI
+cyberboba api GET /api/topology                   # any endpoint directly
+```
+
+The API listens on loopback; set `api.token` in the config before exposing it.
+Reference: [docs/API.md](docs/API.md), [docs/CONFIG.md](docs/CONFIG.md),
+[docs/AGENTS.md](docs/AGENTS.md), `GET /api/openapi.json`.
+
+## How it works
+
+- Outbound TCP from the machine is redirected by an iptables `REDIRECT` rule
+  in a `CYBERBOBA_OUT` chain to the daemon's transparent listener. The daemon
+  reads the original destination (`SO_ORIGINAL_DST`), resolves the owning
+  process with a `sock_diag` netlink query plus `/proc/<pid>/fd`, sniffs the
+  SNI or Host header, evaluates the rules and dials upstream: direct, through
+  a proxy or chain, through a VPN (packets marked with `SO_MARK`, policy
+  routing table per selective tunnel), or into the interceptor.
+- DNS from the machine is redirected to the daemon's forwarder, which applies
+  the blocklists and remembers IP-to-hostname mappings for the rules.
+- A full-mode VPN owns the default route, so it becomes the first hop of every
+  connection that is not pinned to another tunnel; the traffic map and
+  RouteBuilder draw it that way. Because `wg-quick` installs an anti-spoofing
+  rule that would drop the replies of redirected connections, the daemon
+  relaxes that rule for loopback (both the iptables and the nftables flavour).
+- The daemon's own traffic is excluded from redirection by mark and uid, so
+  it cannot loop through itself.
 
 ## Project layout
 
 ```
-cmd/cyberbobad       daemon          internal/proxy      transparent + SOCKS5 engine, SNI/Host sniff
+cmd/cyberbobad       daemon          internal/proxy      transparent + SOCKS5/HTTP engine, SNI/Host sniff
 cmd/cyberboba        CLI             internal/upstream   SOCKS5 / HTTP CONNECT / chains / SO_MARK dialer
-internal/config    YAML config     internal/netfilter  iptables chains, policy routing tables
-internal/rules     rule engine     internal/dnsfwd     DNS forwarder + ad-block + ip→host cache
-internal/procinfo  socket → pid    internal/vpn        WireGuard + OpenVPN backends
-internal/stats     live table/SSE  internal/firewall   ZoneAlarm-style app firewall
-internal/bandwidth per-app meter   internal/aiagents   AI-agent registry
-internal/intercept MITM: CA, flows, hold/edit, repeater, passive scanner, HAR
-internal/sysstat   CPU/mem/temps + reclaim           internal/topology   traffic map
-internal/api       HTTP API        internal/mcp        MCP server (stdio + HTTP)
-web/               embedded web UI (vanilla JS)      desktop/   Electron shell
+internal/config      YAML config     internal/netfilter  iptables chains, policy routing, wg-quick fix-ups
+internal/rules       rule engine     internal/dnsfwd     DNS forwarder, blocklists, ip-to-host cache
+internal/procinfo    socket to pid   internal/vpn        WireGuard and OpenVPN backends
+internal/stats       live table/SSE  internal/firewall   application firewall
+internal/bandwidth   per-app meter   internal/aiagents   AI agent registry
+internal/intercept   MITM proxy: CA, flows, hold/edit, repeater, passive scanner, HAR
+internal/sysstat     CPU/mem/temps   internal/topology   traffic map and live geographic map
+internal/api         HTTP API        internal/mcp        MCP server (stdio and HTTP)
+web/                 embedded web UI (vanilla JS)
+desktop/             Electron shell, tray, system-wide alerts (alerts.js, notifier.py)
 ```
 
-## Windows & macOS
+## Security and responsible use
 
-The full transparent experience is Linux-native. On other platforms:
-
-- **Windows → WSL2 (recommended, full features):** run the daemon inside WSL2
-  and use the UI/desktop app from Windows. See the
-  **[Windows (WSL2) & macOS guide](docs/WINDOWS-WSL2.md)**.
-- **macOS / native Windows → "lite" mode:** prebuilt `darwin-*` and
-  `windows-amd64` binaries ship in each release and run the UI/API/MCP, upstream
-  proxies, the intercepting proxy as an *explicit* proxy and DNS filtering;
-  transparent interception, the app firewall and system monitors are Linux-only.
-
-## Security & responsible use
-
-CyberBoba is a **defensive and introspection** tool for machines **you own or
-are authorised to administer**. It can intercept TLS (with a CA you install),
-route traffic through proxies/VPNs, and firewall processes. Use it only on
+CyberBoba is a defensive and introspection tool for machines you own or are
+authorised to administer. It intercepts TLS with a CA you install, routes
+traffic through proxies and VPNs, and firewalls processes. Use it only on
 systems and traffic you are permitted to inspect. The intercept CA private key
-lives in `/etc/cyberboba/ca` — protect it like any private key. The web UI/API
-bind to loopback by default; set `api.token` before exposing the API.
+lives in `/etc/cyberboba/ca`; protect it like any private key.
 
 ## Limitations
 
-- Only TCP and DNS are intercepted transparently; other UDP goes direct (QUIC
-  is blocked by default so HTTPS stays on TCP). Use a `full` VPN for all UDP.
-- Interception is for locally generated traffic (`OUTPUT` chain); forwarded
+- Only TCP and DNS are intercepted transparently. Other UDP goes direct; QUIC
+  is blocked by default so HTTPS stays on TCP. Use a `full` VPN for all UDP.
+- Interception covers locally generated traffic (`OUTPUT` chain); forwarded
   traffic from other hosts is not touched.
-- Intercepted TLS is HTTP/1.1 only; pinned apps go into `intercept.passthrough`.
+- Intercepted TLS is HTTP/1.1 only; certificate-pinned apps belong in
+  `intercept.passthrough`.
+- Process attribution needs the socket to still exist when the connection is
+  accepted. A program that connects and exits immediately shows up as
+  "unknown program" with a best-effort guess from earlier connections.
+- Linux only. Nothing here runs on macOS or Windows.
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0, see [LICENSE](LICENSE).
