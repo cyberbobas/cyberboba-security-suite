@@ -37,8 +37,9 @@ jobs:
         run: |
           cd desktop
           npm install
-          npm run dist
-          cp dist/*.AppImage ../dist/ 2>/dev/null || true
+          npx --no-install electron-builder --linux AppImage --publish never
+          mkdir -p ../dist
+          for f in dist/*.AppImage; do cp "$f" "../dist/cyberboba-${GITHUB_REF_NAME}-linux-x86_64.AppImage"; done 2>/dev/null || true
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
