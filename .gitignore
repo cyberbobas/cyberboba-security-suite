@@ -16,3 +16,9 @@ desktop/out/
 
 # local dev config overrides (ship only the example)
 /config.local.yaml
+
+# stray root-level build outputs
+/cyberboba
+/cyberbobad
+/trident
+/tridentd
