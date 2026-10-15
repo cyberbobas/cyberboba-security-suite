@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build Go binaries
+        run: |
+          make build
+          VER="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          install -m0755 bin/cyberbobad bin/cyberboba dist/
+          tar -C dist -czf "dist/cyberboba-${VER}-linux-amd64.tar.gz" cyberbobad cyberboba
+          (cd dist && sha256sum "cyberboba-${VER}-linux-amd64.tar.gz" > "cyberboba-${VER}-linux-amd64.tar.gz.sha256")
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build desktop AppImage (best effort)
+        continue-on-error: true
+        run: |
+          cd desktop
+          npm install
+          npm run dist
+          cp dist/*.AppImage ../dist/ 2>/dev/null || true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/cyberboba-*-linux-amd64.tar.gz
+            dist/cyberboba-*-linux-amd64.tar.gz.sha256
+            dist/*.AppImage

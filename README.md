@@ -6,10 +6,11 @@
 
 Built so an AI agent (or you) can see and control *exactly* what every process on the machine does on the network.
 
-[![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![CI](https://github.com/cyberbobas/cyberboba-security-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberbobas/cyberboba-security-suite/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Platform](https://img.shields.io/badge/platform-Linux-333)](#install)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-[![MCP tools](https://img.shields.io/badge/MCP%20tools-91-7C3AED)](docs/AGENTS.md)
+[![MCP tools](https://img.shields.io/badge/MCP%20tools-92-7C3AED)](docs/AGENTS.md)
 
 ![demo](docs/demo.gif)
 
@@ -154,7 +155,7 @@ are an agent.
 ## Install
 
 **Requirements:** Linux with iptables (legacy or nft) and `ip`; optionally
-`wireguard-tools`, `openvpn`, `libnss3-tools` (for browser CA import). **Go ≥ 1.22** to build.
+`wireguard-tools`, `openvpn`, `libnss3-tools` (for browser CA import). **Go ≥ 1.26** to build.
 
 ```sh
 git clone https://github.com/<you>/cyberboba.git
